@@ -228,7 +228,7 @@
         <div class="row g-3 align-items-center">
           <div class="col-12 col-md-9">
             <label for="statusOptions" class="form-label">Statuses (comma-separated)</label>
-            <input id="statusOptions" class="form-control" placeholder="e.g. IN_STOCK, ASSIGNED, REPAIR, LOST, DISPOSED"/>
+            <input id="statusOptions" class="form-control" placeholder="e.g. Disposed, Initial, Installed, Returned, Shipped, Stored"/>
             <div class="text-secondary mt-1">Used to populate the Add modal’s dropdown. You can still type custom statuses in the modal.</div>
           </div>
           <div class="col-12 col-md-3 d-grid d-md-flex align-items-end">
@@ -1622,7 +1622,7 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
   // Status options
   let statuses = await idbGet(IDB_KEY_STATUS);
   if(!Array.isArray(statuses) || statuses.length===0){
-    statuses = ["IN_STOCK","ASSIGNED","REPAIR","LOST","DISPOSED"];
+    statuses = ["Disposed","Initial","Installed","Returned","Shipped","Stored"];
     await idbSet(IDB_KEY_STATUS, statuses);
   }
   const statusInputEl = document.getElementById('statusOptions');
