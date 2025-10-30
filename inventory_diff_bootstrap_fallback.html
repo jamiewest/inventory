@@ -92,6 +92,7 @@
                 <tbody id="localBody"></tbody>
               </table>
             </div>
+            <div id="localImportStatus" class="small text-secondary mt-2" role="status" aria-live="polite"></div>
           </div>
           <div class="card-footer d-flex gap-2">
             <label class="btn btn-outline-dark btn-sm mb-0" for="loadLocalFile">Import Local JSON/CSV</label>
@@ -117,6 +118,7 @@
               <span id="officialStats" class="badge text-bg-secondary">No file loaded</span>
             </div>
             <p class="text-secondary mb-2">CSV must include header <span class="code">id</span>.</p>
+            <div id="officialImportStatus" class="small text-secondary mb-2" role="status" aria-live="polite"></div>
             <div id="officialPreviewWrap" class="vis-hide">
               <div class="table-responsive scroll-pane table-fixed-head border rounded">
                 <table class="table table-sm mb-0" id="officialPreview">
@@ -508,6 +510,15 @@ window.addEventListener('DOMContentLoaded', ()=>{
 });
 
 function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; }
+function setStatus(id, message, variant="info"){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const variants = { info: "text-secondary", success: "text-success", error: "text-danger" };
+  el.classList.remove("text-secondary","text-success","text-danger");
+  const cls = variants[variant] || variants.info;
+  el.classList.add(cls);
+  el.textContent = message || "";
+}
 
 // ======= Local Working Set =======
 const localCols = ["id","serial","decal","location","make","model","assigned_to","status","meta"];
@@ -576,15 +587,27 @@ function populateStatusSelect(arr){
 // ======= Official snapshot =======
 let officialRows = []; const officialStats = $("#officialStats");
 const officialPreviewWrap = $("#officialPreviewWrap"); const officialPreviewHead = $("#officialPreview thead"); const officialPreviewBody = $("#officialPreview tbody");
-function loadOfficialCSVObjects(rows){
-  officialRows = rows.map(upgradeRow);
-  officialStats.textContent = `${rows.length} rows loaded`;
-  const cols = Object.keys(rows[0] ?? {});
+function loadOfficialCSVObjects(rows, opts){
+  officialRows = rows;
+  const statsLabel = opts?.statsLabel ?? `${rows.length} row(s) ready`;
+  officialStats.textContent = statsLabel;
+  const cols = (()=> {
+    const first = rows[0];
+    const keys = first ? Object.keys(first) : [];
+    return keys.length ? keys : localCols;
+  })();
   officialPreviewHead.innerHTML = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>";
   officialPreviewBody.innerHTML = rows.slice(0,20).map(r => "<tr>" + cols.map(c => `<td>${(r[c]??"")}</td>`).join("") + "</tr>").join("");
   officialPreviewWrap.classList.toggle("vis-hide", rows.length===0);
 }
-function clearOfficial(){ officialRows = []; officialStats.textContent = "No file loaded"; officialPreviewWrap.classList.add("vis-hide"); officialPreviewHead.innerHTML=""; officialPreviewBody.innerHTML=""; }
+function clearOfficial(){
+  officialRows = [];
+  officialStats.textContent = "No file loaded";
+  officialPreviewWrap.classList.add("vis-hide");
+  officialPreviewHead.innerHTML="";
+  officialPreviewBody.innerHTML="";
+  setStatus("officialImportStatus", "Official snapshot cleared.", "info");
+}
 
 // ======= Diff logic =======
 function diffInventories(localRows, officialRows, opts){
@@ -637,28 +660,84 @@ $("#saveLocalCsv").addEventListener("click", ()=>{
 });
 
 $("#loadLocalFile").addEventListener("change", async (e)=>{
-  const f = e.target.files[0]; if(!f) return; const text = await f.text();
+  const f = e.target.files[0];
+  if(!f){ setStatus("localImportStatus", "No file selected.", "info"); return; }
+  setStatus("localImportStatus", `Reading "${f.name}"…`, "info");
   try{
+    const text = await f.text();
     let rows;
     if(f.name.toLowerCase().endsWith(".json")){
-      rows = JSON.parse(text); if(!Array.isArray(rows)) throw new Error("JSON must be an array of objects");
+      rows = JSON.parse(text);
+      if(!Array.isArray(rows)){
+        const candidate = grab(rows || {}, "rows","data","items","inventory","Records","records");
+        if(Array.isArray(candidate)){ rows = candidate; }
+        else throw new Error("JSON must be an array or contain a top-level array (rows/items/data).");
+      }
     } else {
-      const { rows: r } = parseCSV(text); rows = r;
+      const parsed = parseCSV(text);
+      rows = parsed.rows;
+      if(rows.length === 0){ throw new Error("No data rows detected in CSV."); }
     }
-    const normed = rows.map(upgradeRow).filter(r => norm(r.id));
-    renderLocal(normed); await saveLocalToIDB(); showSavedToast();
-  } catch(err){ alert("Failed to load local file: " + err.message); } finally { e.target.value = ""; }
+    const total = rows.length;
+    const upgraded = rows.map(upgradeRow);
+    const valid = upgraded.filter(r => norm(r.id));
+    const skipped = total - valid.length;
+    renderLocal(valid);
+    await saveLocalToIDB();
+    if(valid.length === 0){
+      setStatus("localImportStatus", "Import completed but no rows contained an \"id\" value.", "info");
+    } else {
+      const msg = [`Imported ${valid.length} row${valid.length===1?"":"s"}`];
+      if(skipped > 0){ msg.push(`${skipped} skipped (missing id)`); }
+      setStatus("localImportStatus", msg.join("; ") + ".", "success");
+    }
+  } catch(err){
+    setStatus("localImportStatus", `Import failed: ${err.message}`, "error");
+  } finally {
+    e.target.value = "";
+  }
 });
 
 $("#loadOfficialCsv").addEventListener("change", async (e)=>{
-  const f = e.target.files[0]; if(!f) return; const text = await f.text();
+  const f = e.target.files[0];
+  if(!f){ setStatus("officialImportStatus", "No file selected.", "info"); return; }
+  setStatus("officialImportStatus", `Reading "${f.name}"…`, "info");
   try{
+    const text = await f.text();
     const { headers, rows } = parseCSV(text);
     if(headers.length===0) throw new Error("No headers found");
-    if(!headers.map(h=>h.toLowerCase()).includes("id")) throw new Error('Missing required "id" column');
-    const mapped = rows.map(r => { const o = {}; for(const k of Object.keys(r)){ o[k.trim()] = r[k]; } return o; });
-    loadOfficialCSVObjects(mapped);
-  } catch(err){ alert("Failed to parse official CSV: " + err.message); } finally { e.target.value = ""; }
+    const canonical = rows.map(r => {
+      const o = {};
+      for(const k of Object.keys(r)){
+        const key = typeof k === "string" ? k.trim() : k;
+        if(key) o[key] = r[k];
+      }
+      return o;
+    });
+    const upgraded = canonical.map(upgradeRow);
+    const total = upgraded.length;
+    if(total === 0){
+      loadOfficialCSVObjects([], { statsLabel: "0 row(s) ready" });
+      setStatus("officialImportStatus", "Import completed but the file contained no data rows.", "info");
+      return;
+    }
+    const valid = upgraded.filter(r => norm(r.id));
+    const skipped = total - valid.length;
+    if(valid.length === 0){
+      loadOfficialCSVObjects([], { statsLabel: "0 row(s) ready" });
+      setStatus("officialImportStatus", "No rows contained an identifier (id/tag); nothing was loaded.", "error");
+      return;
+    }
+    const statsLabel = `${valid.length} row${valid.length===1?"":"s"} ready${skipped>0?`, ${skipped} skipped`:""}`;
+    loadOfficialCSVObjects(valid, { statsLabel });
+    const msg = [`Loaded ${valid.length} row${valid.length===1?"":"s"} from "${f.name}"`];
+    if(skipped > 0) msg.push(`${skipped} skipped (missing id)`);
+    setStatus("officialImportStatus", msg.join("; ") + ".", skipped > 0 ? "info" : "success");
+  } catch(err){
+    setStatus("officialImportStatus", `Import failed: ${err.message}`, "error");
+  } finally {
+    e.target.value = "";
+  }
 });
 
 $("#btnDiff").addEventListener("click", async ()=>{
