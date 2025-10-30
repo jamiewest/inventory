@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Inventory Manager & Change Log (Bootstrap + Offline Fallback)</title>
+<!-- Primary Bootstrap CDN -->
+<link id="bs-css-1" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Secondary CDNs (will be enabled if primary fails) -->
+<link id="bs-css-2" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet" disabled>
+<link id="bs-css-3" href="https://unpkg.com/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" disabled>
+<style>
+  /* Minimal fallback styling if all CDNs fail */
+  :root { color-scheme: light; }
+  body { background-color:#f5f7fb; color:#1f2933; }
+  .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .table-fixed-head thead th { position: sticky; top: 0; z-index: 2; }
+  .scroll-pane { max-height: 60vh; overflow: auto; }
+  .menu-spacer { height: 56px; }
+  .vis-hide { display: none !important; }
+  .fallback .navbar { position:fixed; top:0; left:0; right:0; background:#ffffff; border-bottom:1px solid #d0d7de; padding:.5rem 1rem; }
+  .fallback .navbar a { color:#1f2933; text-decoration:none; margin-right:1rem; }
+  .fallback .container-fluid, .fallback .container { padding: 0 1rem; }
+  .fallback .card { border:1px solid #d0d7de; background:#ffffff; border-radius:.5rem; margin-bottom:1rem; }
+  .fallback .card-header, .fallback .card-footer { padding:.75rem 1rem; border-bottom:1px solid #d0d7de; }
+  .fallback .card-body { padding:1rem; }
+  .fallback .btn { padding:.4rem .6rem; border:1px solid #c2c8d0; background:#f3f5f8; color:#1f2933; border-radius:.4rem; cursor:pointer; }
+  .fallback .btn-primary { background:#0d6efd; color:#ffffff; border-color:#0d6efd; }
+  .fallback .btn-outline-secondary,
+  .fallback .btn-outline-dark { background:transparent; color:#1f2933; border-color:#c2c8d0; }
+  .fallback .btn-outline-danger { background:transparent; color:#b42318; border-color:#e29f9e; }
+  .fallback .badge { display:inline-block; padding:.2rem .4rem; border:1px solid #d0d7de; border-radius:.4rem; color:#4a5563; }
+  .fallback table { width:100%; border-collapse:collapse; }
+  .fallback th, .fallback td { border-bottom:1px solid #e5e9f2; padding:.5rem; vertical-align:top; }
+  .fallback .toast-save { position: fixed; right: 1rem; bottom: 1rem; background:#ffffff; border:1px solid #d0d7de; padding:.4rem .6rem; border-radius:.4rem; }
+  /* Custom modal fallback */
+  .modal-fb { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+  .modal-fb.show { display:flex; }
+  .modal-fb .panel { width:min(560px,95vw); background:#ffffff; border:1px solid #d0d7de; border-radius:.6rem; overflow:hidden; }
+  .modal-fb header, .modal-fb .actions { padding:.75rem 1rem; border-bottom:1px solid #d0d7de; }
+  .modal-fb .content { padding:1rem; }
+  .form-grid { display:grid; grid-template-columns:1fr; gap:.5rem; }
+  @media(min-width:760px){ .form-grid { grid-template-columns: 1fr 1fr; } .form-grid .full { grid-column:1 / -1; } }
+  .input, select, textarea { width:100%; padding:.5rem .6rem; border:1px solid #c2c8d0; border-radius:.4rem; background:#ffffff; color:#1f2933; }
+</style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg bg-body-tertiary fixed-top border-bottom">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-semibold" href="#inventory">Inventory</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav" aria-controls="topNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="topNav">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item"><a class="nav-link" href="#inventory">Local Working Set</a></li>
+        <li class="nav-item"><a class="nav-link" href="#statuses">Statuses</a></li>
+        <li class="nav-item"><a class="nav-link" href="#diff">Change Log</a></li>
+      </ul>
+      <span class="navbar-text small text-secondary">IndexedDB autosave</span>
+    </div>
+  </div>
+</nav>
+<div class="menu-spacer"></div>
+
+<main class="container-fluid py-3">
+
+  <!-- INVENTORY PAGE -->
+  <section id="page-inventory" class="vis-hide">
+    <div class="row g-3">
+      <div class="col-12 col-xxl-8">
+        <div class="card shadow-sm">
+          <div class="card-header d-flex align-items-center">
+            <h5 class="mb-0">Local Working Set</h5>
+            <span class="badge text-bg-secondary ms-2">Columns: <span class="code">id</span>, <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
+            <div class="ms-auto d-flex gap-2">
+              <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
+              <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
+              <button class="btn btn-outline-secondary btn-sm" id="clearAll">Clear all</button>
+            </div>
+          </div>
+          <div class="card-body pt-2">
+            <p class="text-secondary">Primary key: <span class="code">id</span>. Meta can be any text or JSON.</p>
+            <div class="table-responsive scroll-pane table-fixed-head border rounded">
+              <table class="table table-sm align-middle mb-0" id="localTable">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width:36px;"><input class="form-check-input" type="checkbox" id="selAll"></th>
+                    <th>id</th><th>serial</th><th>decal</th><th>location</th><th>make</th><th>model</th><th>assigned_to</th><th>status</th><th>meta</th>
+                  </tr>
+                </thead>
+                <tbody id="localBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer d-flex gap-2">
+            <label class="btn btn-outline-dark btn-sm mb-0" for="loadLocalFile">Import Local JSON/CSV</label>
+            <input type="file" id="loadLocalFile" accept=".json,.csv,text/csv,application/json" hidden/>
+            <button class="btn btn-outline-dark btn-sm" id="saveLocalJson">Export Local JSON</button>
+            <button class="btn btn-outline-dark btn-sm" id="saveLocalCsv">Export Local CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xxl-4">
+        <div class="card shadow-sm">
+          <div class="card-header d-flex align-items-center">
+            <h6 class="mb-0">Official Snapshot</h6>
+            <div class="ms-auto">
+              <button class="btn btn-outline-secondary btn-sm" id="clearOfficial">Clear</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="d-flex gap-2 align-items-center mb-2">
+              <label class="btn btn-outline-dark btn-sm mb-0" for="loadOfficialCsv">Import Official CSV</label>
+              <input type="file" id="loadOfficialCsv" accept=".csv,text/csv" hidden/>
+              <span id="officialStats" class="badge text-bg-secondary">No file loaded</span>
+            </div>
+            <p class="text-secondary mb-2">CSV must include header <span class="code">id</span>.</p>
+            <div id="officialPreviewWrap" class="vis-hide">
+              <div class="table-responsive scroll-pane table-fixed-head border rounded">
+                <table class="table table-sm mb-0" id="officialPreview">
+                  <thead></thead><tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 text-end">
+          <a class="btn btn-success" href="#diff">Go to Change Log →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATUSES PAGE -->
+  <section id="page-statuses" class="vis-hide">
+    <div class="card shadow-sm">
+      <div class="card-header"><h5 class="mb-0">Status Options</h5></div>
+      <div class="card-body">
+        <div class="row g-3 align-items-center">
+          <div class="col-12 col-md-9">
+            <label for="statusOptions" class="form-label">Statuses (comma-separated)</label>
+            <input id="statusOptions" class="form-control" placeholder="e.g. IN_STOCK, ASSIGNED, REPAIR, LOST, DISPOSED"/>
+            <div class="text-secondary mt-1">Used to populate the Add modal’s dropdown. You can still type custom statuses in the modal.</div>
+          </div>
+          <div class="col-12 col-md-3 d-grid d-md-flex align-items-end">
+            <button class="btn btn-primary w-100" id="saveStatus">Save Status Options</button>
+          </div>
+        </div>
+        <div class="mt-2">
+          <span id="statusSaved" class="badge text-bg-secondary">Not saved</span>
+        </div>
+      </div>
+      <div class="card-footer d-flex justify-content-between">
+        <a class="btn btn-outline-dark" href="#inventory">← Back to Inventory</a>
+        <a class="btn btn-success" href="#diff">Go to Change Log →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- DIFF PAGE -->
+  <section id="page-diff" class="vis-hide">
+    <div class="card shadow-sm">
+      <div class="card-header"><h5 class="mb-0">Generate Change Log</h5></div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12 col-lg-4">
+            <div class="card bg-body-secondary border-0">
+              <div class="card-body">
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="emptyClears">
+                  <label class="form-check-label" for="emptyClears">Empty means “clear field”</label>
+                </div>
+                <div class="form-check form-switch mb-3">
+                  <input class="form-check-input" type="checkbox" id="ignoreMeta">
+                  <label class="form-check-label" for="ignoreMeta">Ignore <span class="code">meta</span> field</label>
+                </div>
+                <p class="text-secondary">Compared fields: <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span> (by <span class="code">id</span>).</p>
+                <div class="d-grid gap-2">
+                  <button class="btn btn-primary" id="btnDiff">Generate Change Log</button>
+                </div>
+                <div class="mt-2">
+                  <span id="diffStats" class="badge text-bg-secondary">No diff yet</span>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex gap-2 mt-3">
+              <button class="btn btn-outline-dark" id="downloadCsv" disabled>Download CSV</button>
+              <button class="btn btn-outline-dark" id="copyMd" disabled>Copy Markdown</button>
+            </div>
+          </div>
+          <div class="col-12 col-lg-8">
+            <div class="table-responsive scroll-pane table-fixed-head border rounded">
+              <table class="table table-sm mb-0" id="diffTable">
+                <thead class="table-light">
+                  <tr>
+                    <th>Action</th><th>Tag</th><th>Field</th><th>OfficialValue</th><th>LocalValue</th><th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="diffBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer d-flex justify-content-between">
+        <a class="btn btn-outline-dark" href="#inventory">← Back to Inventory</a>
+        <a class="btn btn-outline-dark" href="#statuses">Edit Statuses</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Add Asset Modal (Bootstrap) -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addTitle">Add Asset</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label for="m_id" class="form-label">ID *</label>
+            <input id="m_id" class="form-control" placeholder="required"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_serial" class="form-label">Serial</label>
+            <input id="m_serial" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_decal" class="form-label">Decal</label>
+            <input id="m_decal" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_location" class="form-label">Location</label>
+            <input id="m_location" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_make" class="form-label">Make</label>
+            <input id="m_make" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_model" class="form-label">Model</label>
+            <input id="m_model" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_assigned_to" class="form-label">Assigned To</label>
+            <input id="m_assigned_to" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Status</label>
+            <div class="input-group">
+              <select id="m_status" class="form-select"></select>
+              <input id="m_status_custom" class="form-control" placeholder="or type custom…"/>
+            </div>
+            <div class="text-secondary">Choose from the list or type your own.</div>
+          </div>
+          <div class="col-12">
+            <label for="m_meta" class="form-label">Meta (JSON or text)</label>
+            <textarea id="m_meta" class="form-control" rows="3" placeholder='e.g. {"color":"black","cost":999}'></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmAdd">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Fallback Modal (if Bootstrap JS unavailable) -->
+<div id="fallbackModal" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header><strong>Add Asset</strong></header>
+    <div class="content">
+      <div class="form-grid">
+        <div>
+          <label>ID *</label>
+          <input id="fb_id" class="input" placeholder="required"/>
+        </div>
+        <div>
+          <label>Serial</label>
+          <input id="fb_serial" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Decal</label>
+          <input id="fb_decal" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Location</label>
+          <input id="fb_location" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Make</label>
+          <input id="fb_make" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Model</label>
+          <input id="fb_model" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Assigned To</label>
+          <input id="fb_assigned_to" class="input" placeholder="optional"/>
+        </div>
+        <div class="full">
+          <label>Status</label>
+          <div style="display:flex; gap:.5rem;">
+            <select id="fb_status" class="input"></select>
+            <input id="fb_status_custom" class="input" placeholder="or type custom…"/>
+          </div>
+        </div>
+        <div class="full">
+          <label>Meta (JSON or text)</label>
+          <textarea id="fb_meta" class="input" rows="3" placeholder='e.g. {"color":"black","cost":999}'></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="fb_cancel">Cancel</button>
+      <button class="btn btn-primary" id="fb_confirm">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Save Toast -->
+<div class="toast align-items-center text-bg-light border-0 toast-save" id="saveToast" role="status" aria-live="polite" aria-atomic="true">
+  <div class="d-flex">
+    <div class="toast-body">
+      Saved <span id="saveTime" class="code"></span>
+    </div>
+    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+  </div>
+</div>
+
+<!-- Primary Bootstrap Bundle -->
+<script id="bs-js-1" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
+<!-- Secondary Bootstrap Bundles (disabled initially) -->
+<script id="bs-js-2" src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js" defer disabled></script>
+<script id="bs-js-3" src="https://unpkg.com/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer disabled></script>
+
+<script>
+// ===== Bootstrap load watchdog & fallbacks =====
+function bootstrapLoaded() { return !!window.bootstrap; }
+function enableAltCDNs(){
+  document.getElementById('bs-css-2').disabled = false;
+  document.getElementById('bs-css-3').disabled = false;
+  document.getElementById('bs-js-2').removeAttribute('disabled');
+  document.getElementById('bs-js-3').removeAttribute('disabled');
+}
+function markFallbackUI(){
+  // add .fallback class to body for minimal styles
+  document.body.classList.add('fallback');
+  // simple navbar toggler fallback
+  const toggler = document.querySelector('.navbar-toggler');
+  const target = document.getElementById('topNav');
+  if(toggler && target){
+    toggler.addEventListener('click', ()=>{
+      target.style.display = target.style.display === 'block' ? '' : 'block';
+    });
+  }
+}
+
+let bootstrapCheckTries = 0;
+function checkBootstrap(){
+  if(bootstrapLoaded()) return; // good
+  bootstrapCheckTries++;
+  if(bootstrapCheckTries === 2){
+    // first retry: enable alt CDNs
+    enableAltCDNs();
+  }
+  if(bootstrapCheckTries > 5){
+    // give up: offline fallback
+    markFallbackUI();
+    console.warn('Bootstrap not available; using offline fallback UI.');
+    return;
+  }
+  setTimeout(checkBootstrap, 600);
+}
+checkBootstrap();
+</script>
+
+<script>
+// ======= Simple hash router =======
+const routes = { "#inventory":"page-inventory", "#statuses":"page-statuses", "#diff":"page-diff" };
+function showRoute() {
+  const hash = location.hash || "#inventory";
+  for (const id of Object.values(routes)) document.getElementById(id).classList.add("vis-hide");
+  const pageId = routes[hash] || "page-inventory";
+  document.getElementById(pageId).classList.remove("vis-hide");
+  document.querySelectorAll(".nav-link").forEach(a => a.classList.toggle("active", a.getAttribute("href") === hash));
+}
+window.addEventListener("hashchange", showRoute);
+window.addEventListener("DOMContentLoaded", showRoute);
+
+// ======= IndexedDB kv =======
+const DB_NAME = 'inventoryDB';
+const DB_VERSION = 4;
+const STORE = 'kv';
+const IDB_KEY_ROWS = 'localRows';
+const IDB_KEY_STATUS = 'statusOptions';
+const LS_KEY_MIGRATION = 'inv.local.rows.v1';
+
+function idbOpen(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(STORE)){
+        db.createObjectStore(STORE, { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(STORE, 'readonly');
+    const st = tx.objectStore(STORE);
+    const req = st.get(key);
+    req.onsuccess = ()=> resolve(req.result ? req.result.value : undefined);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbSet(key, value){
+  const db = await idbOpen();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(STORE, 'readwrite');
+    const st = tx.objectStore(STORE);
+    const req = st.put({ key, value });
+    req.onsuccess = ()=> resolve(true);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+// ======= Utilities =======
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+function norm(v){ return (v ?? '').toString().trim(); }
+function toMapById(rows){ const m = new Map(); for(const r of rows){ const id = norm(r.id); if(id) m.set(id, r); } return m; }
+function parseCSV(text){
+  const rows = []; let i=0, cur='', inQ=false, row=[];
+  const pushCell=()=>{ row.push(cur); cur=''; }, pushRow=()=>{ rows.push(row); row=[]; };
+  while(i<text.length){
+    const ch=text[i++];
+    if(inQ){
+      if(ch === '"'){ if(text[i] === '"'){ cur += '"'; i++; } else { inQ=false; } }
+      else { cur += ch; }
+    } else {
+      if(ch === '"'){ inQ=true; }
+      else if(ch === ','){ pushCell(); }
+      else if(ch === '\\r'){}
+      else if(ch === '\\n'){ pushCell(); pushRow(); }
+      else { cur += ch; }
+    }
+  }
+  pushCell(); pushRow();
+  if(rows.length && rows[rows.length-1].every(c=>c==='')) rows.pop();
+  if(rows.length===0) return {headers:[],rows:[]};
+  const headers = rows[0].map(h=>h.trim());
+  const outRows = rows.slice(1).map(r => {
+    const obj = {}; headers.forEach((h,idx)=> obj[h] = (r[idx] ?? '').trim()); return obj;
+  });
+  return { headers, rows: outRows };
+}
+function toCSV(rows){
+  const cols = ["Action","Tag","Field","OfficialValue","LocalValue","Notes"];
+  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const head = cols.join(",");
+  const lines = rows.map(r => cols.map(c => esc(r[c])).join(","));
+  return [head,...lines].join("\\n");
+}
+function toMarkdown(rows){
+  const cols = ["Action","Tag","Field","OfficialValue","LocalValue","Notes"];
+  const head = `| ${cols.join(" | ")} |\\n| ${cols.map(()=>"-").join(" | ")} |`;
+  const lines = rows.map(r => `| ${cols.map(c => String(r[c] ?? "")).join(" | ")} |`);
+  return [head, ...lines].join("\\n");
+}
+
+// ======= Save Toast (Bootstrap or fallback) =======
+const toastEl = document.getElementById('saveToast');
+let showSavedToast = ()=>{
+  // fallback toast
+  const span = document.getElementById('saveTime');
+  const ts = new Date(); const hh = String(ts.getHours()).padStart(2,'0');
+  const mm = String(ts.getMinutes()).padStart(2,'0'); const ss = String(ts.getSeconds()).padStart(2,'0');
+  span.textContent = `at ${hh}:${mm}:${ss}`;
+  toastEl.style.display = 'block';
+  setTimeout(()=> toastEl.style.display='none', 1400);
+};
+window.addEventListener('DOMContentLoaded', ()=>{
+  if(window.bootstrap){
+    const bsToast = new bootstrap.Toast(toastEl, { delay: 1400 });
+    showSavedToast = ()=>{
+      const span = document.getElementById('saveTime');
+      const ts = new Date(); const hh = String(ts.getHours()).padStart(2,'0');
+      const mm = String(ts.getMinutes()).padStart(2,'0'); const ss = String(ts.getSeconds()).padStart(2,'0');
+      span.textContent = `at ${hh}:${mm}:${ss}`;
+      bsToast.show();
+    };
+  }
+});
+
+function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; }
+
+// ======= Local Working Set =======
+const localCols = ["id","serial","decal","location","make","model","assigned_to","status","meta"];
+function grab(src, ...keys){
+  for(const key of keys){
+    if(!key) continue;
+    if(Object.prototype.hasOwnProperty.call(src, key)){ return src[key]; }
+  }
+  return undefined;
+}
+function upgradeRow(raw){
+  const src = raw || {};
+  const metaCandidate = grab(src, "meta","Meta","META","notes","Notes","NOTES");
+  return {
+    id: norm(grab(src, "id","ID","Id","tag","TAG","Tag")),
+    serial: norm(grab(src, "serial","Serial","SERIAL")),
+    decal: norm(grab(src, "decal","Decal","DECAL","tag","TAG","Tag")),
+    location: norm(grab(src, "location","Location","LOCATION","loc","Loc","LOC")),
+    make: norm(grab(src, "make","Make","MAKE")),
+    model: norm(grab(src, "model","Model","MODEL")),
+    assigned_to: norm(grab(src, "assigned_to","assignedTo","ASSIGNED_TO","Assigned_to","Assigned To","assigned to","ASSIGNED TO","person","Person","PERSON","holder","Holder","HOLDER")),
+    status: norm(grab(src, "status","Status","STATUS")),
+    meta: typeof metaCandidate === "string" ? metaCandidate : (metaCandidate != null ? JSON.stringify(metaCandidate) : "")
+  };
+}
+const localBody = $("#localBody"); const selAll = $("#selAll");
+function rowToObj(tr){ const tds = Array.from(tr.querySelectorAll("td[data-k]")); const obj = {}; tds.forEach(td => obj[td.dataset.k] = td.textContent.trim()); return obj; }
+function objToRow(obj){
+  const tr = document.createElement("tr");
+  const tdSel = document.createElement("td"); tdSel.innerHTML = '<input class="form-check-input selRow" type="checkbox">'; tr.appendChild(tdSel);
+  for(const k of localCols){ const td = document.createElement("td"); td.contentEditable = "true"; td.dataset.k = k; td.textContent = obj?.[k] ?? ""; tr.appendChild(td); }
+  tr.addEventListener("input", debounce(async ()=>{ await saveLocalToIDB(); showSavedToast(); }, 400));
+  return tr;
+}
+function renderLocal(rows){
+  localBody.innerHTML = "";
+  (rows || []).map(upgradeRow).forEach(r => localBody.appendChild(objToRow(r)));
+}
+function readLocal(){ return Array.from(localBody.querySelectorAll("tr")).map(rowToObj).filter(r => Object.values(r).some(v => v !== "")); }
+async function saveLocalToIDB(){
+  const rows = readLocal().map(upgradeRow);
+  await idbSet('localRows', rows);
+}
+function addRow(data={}){
+  localBody.appendChild(objToRow(upgradeRow(data)));
+  saveLocalToIDB().then(showSavedToast);
+}
+function deleteSelected(){ $$(".selRow:checked").forEach(cb => cb.closest("tr").remove()); saveLocalToIDB().then(showSavedToast); }
+function clearAll(){ localBody.innerHTML = ""; saveLocalToIDB().then(showSavedToast); }
+selAll.addEventListener("change", e => { $$(".selRow").forEach(cb => cb.checked = selAll.checked); });
+
+// ======= Status options =======
+const statusInput = $("#statusOptions"); const statusSaved = $("#statusSaved");
+$("#saveStatus").addEventListener("click", async ()=>{
+  const raw = statusInput.value; const arr = raw.split(",").map(s => s.trim()).filter(Boolean);
+  await idbSet(IDB_KEY_STATUS, arr); statusSaved.textContent = `Saved ${arr.length} item(s)`; populateStatusSelect(arr); showSavedToast();
+});
+function populateStatusSelect(arr){
+  const sel = $("#m_status"); if(!sel) return;
+  sel.innerHTML = ""; const blank = document.createElement("option"); blank.value=""; blank.textContent="(none)"; sel.appendChild(blank);
+  for(const s of arr){ const opt = document.createElement("option"); opt.value = s; opt.textContent = s; sel.appendChild(opt); }
+  // fallback modal select
+  const fbSel = $("#fb_status"); if(fbSel){ fbSel.innerHTML = blank.outerHTML + arr.map(s => `<option>${s}</option>`).join(""); }
+}
+
+// ======= Official snapshot =======
+let officialRows = []; const officialStats = $("#officialStats");
+const officialPreviewWrap = $("#officialPreviewWrap"); const officialPreviewHead = $("#officialPreview thead"); const officialPreviewBody = $("#officialPreview tbody");
+function loadOfficialCSVObjects(rows){
+  officialRows = rows.map(upgradeRow);
+  officialStats.textContent = `${rows.length} rows loaded`;
+  const cols = Object.keys(rows[0] ?? {});
+  officialPreviewHead.innerHTML = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>";
+  officialPreviewBody.innerHTML = rows.slice(0,20).map(r => "<tr>" + cols.map(c => `<td>${(r[c]??"")}</td>`).join("") + "</tr>").join("");
+  officialPreviewWrap.classList.toggle("vis-hide", rows.length===0);
+}
+function clearOfficial(){ officialRows = []; officialStats.textContent = "No file loaded"; officialPreviewWrap.classList.add("vis-hide"); officialPreviewHead.innerHTML=""; officialPreviewBody.innerHTML=""; }
+
+// ======= Diff logic =======
+function diffInventories(localRows, officialRows, opts){
+  const { emptyClears=false, ignoreMeta=false } = opts || {};
+  const baseFields = ["serial","decal","location","make","model","assigned_to","status","meta"];
+  const fields = baseFields.filter(f => !(ignoreMeta && f==="meta"));
+  const local = toMapById(localRows); const official = toMapById(officialRows);
+  const tags = new Set([...local.keys(), ...official.keys()]); const changes = [];
+  for(const id of tags){
+    const L = local.get(id); const O = official.get(id);
+    if(L && !O){ changes.push({Action:"ADD", Tag:id, Field:"(all)", OfficialValue:"", LocalValue:JSON.stringify(L), Notes:""}); continue; }
+    if(!L && O){ changes.push({Action:"REMOVE", Tag:id, Field:"(all)", OfficialValue:JSON.stringify(O), LocalValue:"", Notes:"Not in local working set"}); continue; }
+    for(const f of fields){
+      const o = norm(O?.[f]); const l = norm(L?.[f]); const isEmptyNoOp = !emptyClears && l === ""; const changed = isEmptyNoOp ? false : (o !== l);
+      if(changed){ changes.push({Action:"UPDATE", Tag:id, Field:f, OfficialValue:o, LocalValue:l, Notes:""}); }
+    }
+  }
+  return changes;
+}
+function renderDiff(rows){
+  const tbody = $("#diffBody"); tbody.innerHTML = "";
+  for(const r of rows){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.Action}</td><td class="code">${r.Tag}</td><td>${r.Field}</td>
+      <td class="code">${escapeHtml(r.OfficialValue)}</td>
+      <td class="code">${escapeHtml(r.LocalValue)}</td><td>${r.Notes??""}</td>`;
+    tbody.appendChild(tr);
+  }
+  $("#diffStats").textContent = rows.length ? `${rows.length} change(s)` : "No differences";
+  $("#downloadCsv").disabled = rows.length===0; $("#copyMd").disabled = rows.length===0;
+}
+function escapeHtml(s){ return String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+
+// ======= Wire up =======
+$("#deleteSelected").addEventListener("click", deleteSelected);
+$("#clearAll").addEventListener("click", clearAll);
+
+$("#saveLocalJson").addEventListener("click", ()=>{
+  const rows = readLocal().map(upgradeRow); const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], {type:"application/json"}));
+  a.download = "local-working-set.json"; a.click();
+});
+$("#saveLocalCsv").addEventListener("click", ()=>{
+  const rows = readLocal().map(upgradeRow); const cols = localCols; const head = cols.join(",");
+  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const lines = rows.map(r => cols.map(c => esc(r[c])).join(","));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([[head, ...lines].join("\\n")], {type:"text/csv"}));
+  a.download = "local-working-set.csv"; a.click();
+});
+
+$("#loadLocalFile").addEventListener("change", async (e)=>{
+  const f = e.target.files[0]; if(!f) return; const text = await f.text();
+  try{
+    let rows;
+    if(f.name.toLowerCase().endsWith(".json")){
+      rows = JSON.parse(text); if(!Array.isArray(rows)) throw new Error("JSON must be an array of objects");
+    } else {
+      const { rows: r } = parseCSV(text); rows = r;
+    }
+    const normed = rows.map(upgradeRow).filter(r => norm(r.id));
+    renderLocal(normed); await saveLocalToIDB(); showSavedToast();
+  } catch(err){ alert("Failed to load local file: " + err.message); } finally { e.target.value = ""; }
+});
+
+$("#loadOfficialCsv").addEventListener("change", async (e)=>{
+  const f = e.target.files[0]; if(!f) return; const text = await f.text();
+  try{
+    const { headers, rows } = parseCSV(text);
+    if(headers.length===0) throw new Error("No headers found");
+    if(!headers.map(h=>h.toLowerCase()).includes("id")) throw new Error('Missing required "id" column');
+    const mapped = rows.map(r => { const o = {}; for(const k of Object.keys(r)){ o[k.trim()] = r[k]; } return o; });
+    loadOfficialCSVObjects(mapped);
+  } catch(err){ alert("Failed to parse official CSV: " + err.message); } finally { e.target.value = ""; }
+});
+
+$("#btnDiff").addEventListener("click", async ()=>{
+  const local = readLocal().map(upgradeRow); if(local.some(r => !norm(r.id))) { alert("All rows must have a non-empty 'id'."); return; }
+  const opts = { emptyClears: $("#emptyClears").checked, ignoreMeta: $("#ignoreMeta").checked };
+  const diff = diffInventories(local, officialRows, opts); renderDiff(diff); window.__lastDiff = diff;
+});
+$("#downloadCsv").addEventListener("click", ()=>{
+  const diff = window.__lastDiff || []; const csv = toCSV(diff);
+  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"})); a.download = `inventory-changes-${ts}.csv`; a.click();
+});
+$("#copyMd").addEventListener("click", async ()=>{
+  const diff = window.__lastDiff || []; const md = toMarkdown(diff);
+  try { await navigator.clipboard.writeText(md); alert("Markdown copied to clipboard."); } catch { alert("Copy failed—your browser may block clipboard access."); }
+});
+
+// ======= Add Modal (Bootstrap or fallback) =======
+const openAdd = document.getElementById('openAdd');
+const confirmAdd = document.getElementById('confirmAdd');
+const addModalEl = document.getElementById('addModal');
+const fbModalEl = document.getElementById('fallbackModal');
+
+const m_id = document.getElementById('m_id');
+const m_serial = document.getElementById('m_serial');
+const m_decal = document.getElementById('m_decal');
+const m_location = document.getElementById('m_location');
+const m_make = document.getElementById('m_make');
+const m_model = document.getElementById('m_model');
+const m_assigned_to = document.getElementById('m_assigned_to');
+const m_status = document.getElementById('m_status');
+const m_status_custom = document.getElementById('m_status_custom');
+const m_meta = document.getElementById('m_meta');
+
+const fb_id = document.getElementById('fb_id');
+const fb_serial = document.getElementById('fb_serial');
+const fb_decal = document.getElementById('fb_decal');
+const fb_location = document.getElementById('fb_location');
+const fb_make = document.getElementById('fb_make');
+const fb_model = document.getElementById('fb_model');
+const fb_assigned_to = document.getElementById('fb_assigned_to');
+const fb_status = document.getElementById('fb_status');
+const fb_status_custom = document.getElementById('fb_status_custom');
+const fb_meta = document.getElementById('fb_meta');
+const fb_cancel = document.getElementById('fb_cancel');
+const fb_confirm = document.getElementById('fb_confirm');
+
+openAdd.addEventListener("click", async ()=>{
+  const arr = (await idbGet(IDB_KEY_STATUS)) || [];
+  populateStatusSelect(arr);
+  if(window.bootstrap){
+    m_id.value = ""; m_serial.value=""; m_decal.value=""; m_location.value=""; m_make.value=""; m_model.value=""; m_assigned_to.value=""; m_status.value=""; m_status_custom.value=""; m_meta.value="";
+    const modal = new bootstrap.Modal(addModalEl); modal.show(); setTimeout(()=> m_id.focus(), 150);
+  } else {
+    fb_id.value = ""; fb_serial.value=""; fb_decal.value=""; fb_location.value=""; fb_make.value=""; fb_model.value=""; fb_assigned_to.value=""; fb_status.value=""; fb_status_custom.value=""; fb_meta.value="";
+    fbModalEl.classList.add('show'); fb_id.focus();
+  }
+});
+if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
+if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
+  const id = norm(fb_id.value); if(!id){ alert("ID is required."); return; }
+  const status = norm(fb_status.value) || norm(fb_status_custom.value);
+  const row = {
+    id,
+    serial: norm(fb_serial.value),
+    decal: norm(fb_decal.value),
+    location: norm(fb_location.value),
+    make: norm(fb_make.value),
+    model: norm(fb_model.value),
+    assigned_to: norm(fb_assigned_to.value),
+    status,
+    meta: fb_meta.value.trim()
+  };
+  addRow(row); fbModalEl.classList.remove('show');
+}); }
+
+if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
+  const id = norm(m_id.value); if(!id){ alert("ID is required."); return; }
+  const status = norm(m_status.value) || norm(m_status_custom.value);
+  const row = {
+    id,
+    serial: norm(m_serial.value),
+    decal: norm(m_decal.value),
+    location: norm(m_location.value),
+    make: norm(m_make.value),
+    model: norm(m_model.value),
+    assigned_to: norm(m_assigned_to.value),
+    status,
+    meta: m_meta.value.trim()
+  };
+  addRow(row); const modal = bootstrap.Modal.getInstance(addModalEl); modal?.hide();
+}); }
+
+// ======= Init (with migration) =======
+(async function init(){
+  // Status options
+  let statuses = await idbGet(IDB_KEY_STATUS);
+  if(!Array.isArray(statuses) || statuses.length===0){
+    statuses = ["IN_STOCK","ASSIGNED","REPAIR","LOST","DISPOSED"];
+    await idbSet(IDB_KEY_STATUS, statuses);
+  }
+  const statusInputEl = document.getElementById('statusOptions');
+  if(statusInputEl) statusInputEl.value = statuses.join(", ");
+  const statusSavedEl = document.getElementById('statusSaved');
+  if(statusSavedEl) statusSavedEl.textContent = `Loaded ${statuses.length} item(s)`;
+
+  // Rows
+  let rows = await idbGet(IDB_KEY_ROWS);
+  if(Array.isArray(rows) && rows.length){
+    rows = rows.map(upgradeRow);
+    await idbSet(IDB_KEY_ROWS, rows);
+  } else {
+    try {
+      const s = localStorage.getItem(LS_KEY_MIGRATION);
+      if(s){
+        const parsed = JSON.parse(s);
+        if(Array.isArray(parsed) && parsed.length){
+          rows = parsed.map(upgradeRow).filter(r => norm(r.id));
+          if(rows.length){
+            await idbSet(IDB_KEY_ROWS, rows);
+          }
+        }
+      }
+    } catch {}
+    if(!Array.isArray(rows) || rows.length===0){
+      rows = [upgradeRow({id:"HW-001", serial:"C02XXXX", decal:"DEC-1001", location:"HQ Storage", make:"Apple", model:"MacBook Pro", assigned_to:"Alice", status:"ASSIGNED", meta:'{"demo":true}'})];
+      await idbSet(IDB_KEY_ROWS, rows);
+    }
+  }
+  renderLocal(rows);
+})();
+</script>
+</body>
+</html>
