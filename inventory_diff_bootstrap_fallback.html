@@ -47,6 +47,9 @@
   .notes-list ol { padding-left:1.25rem; margin-bottom:0; }
   .notes-list li + li { margin-top:.5rem; }
   .notes-list time { display:block; font-size:.875rem; color:#64748b; }
+  #localTable { font-size: clamp(.78rem, .74rem + .25vw, .95rem); }
+  #localTable th { font-size: clamp(.7rem, .66rem + .22vw, .85rem); }
+  #localTable td { line-height: 1.35; }
   .sortable { cursor:pointer; user-select:none; }
   .sortable .sort-indicator { margin-left:.25rem; font-size:.75rem; color:#94a3b8; }
   .sortable.sorted .sort-indicator { color:#0d6efd; }
@@ -65,14 +68,20 @@
     .card-header.flex-responsive { flex-direction:column; align-items:flex-start; }
     .card-header.flex-responsive .header-actions { width:100%; flex-wrap:wrap; margin-left:0; }
     .card-header.flex-responsive .header-actions .btn { flex:1 1 160px; }
+    #localTable { font-size: clamp(.72rem, .68rem + .2vw, .88rem); }
+    #localTable th { font-size: clamp(.66rem, .62rem + .18vw, .8rem); }
   }
   @media (max-width: 768px){
     .card-header.flex-responsive .columns-badge { display:none; }
+    #localTable { font-size: clamp(.68rem, .64rem + .18vw, .82rem); }
+    #localTable th { font-size: clamp(.6rem, .56rem + .16vw, .76rem); }
   }
   @media (max-width: 576px){
     #localTable td.note-actions { display:flex; flex-direction:column; gap:.25rem; align-items:stretch; }
     #localTable td.note-actions .btn { width:100%; }
     #localTable td.note-actions .btn.ms-1 { margin-left:0; }
+    #localTable { font-size: clamp(.64rem, .6rem + .16vw, .78rem); }
+    #localTable th { font-size: clamp(.58rem, .54rem + .14vw, .72rem); }
     .card-header.flex-responsive .header-actions .btn { flex:1 0 calc(50% - .25rem); }
   }
   .fallback .d-none { display:none !important; }
@@ -109,17 +118,18 @@
   <!-- INVENTORY PAGE -->
   <section id="page-inventory" class="vis-hide">
     <div class="row g-3">
-      <div class="col-12 col-xxl-8">
+      <div class="col-12">
         <div class="card shadow-sm">
           <div class="card-header d-flex align-items-center flex-responsive">
             <div class="header-title">
               <h5 class="mb-0">Inventory</h5>
-              <span class="badge text-bg-secondary columns-badge">Columns: <span class="code">id</span>, <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
+              <span class="badge text-bg-secondary columns-badge">Columns: <span class="code">id</span>, <span class="code">serial_number</span>, <span class="code">asset_tag</span>, <span class="code">type</span>, <span class="code">model</span>, <span class="code">room</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
             </div>
             <div class="header-actions">
               <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
               <button class="btn btn-outline-secondary btn-sm" id="clearAll">Clear all</button>
+              <button class="btn btn-outline-primary btn-sm" id="seedSample" title="Populate with example data">Seed sample data</button>
             </div>
           </div>
           <div class="card-body pt-2">
@@ -127,7 +137,7 @@
             <div class="row g-2 align-items-end mb-3" id="localToolbar">
               <div class="col-12 col-lg-5">
                 <label for="localSearch" class="form-label mb-1">Search inventory</label>
-                <input id="localSearch" class="form-control form-control-sm" placeholder="Search id, serial, assigned, status, meta…"/>
+                <input id="localSearch" class="form-control form-control-sm" placeholder="Search id, serial, asset tag, assigned, status…"/>
               </div>
               <div class="col-6 col-lg-3">
                 <label for="localStatusFilter" class="form-label mb-1">Status filter</label>
@@ -156,11 +166,11 @@
                   <tr>
                     <th style="width:36px;"><input class="form-check-input" type="checkbox" id="selAll"></th>
                     <th class="sortable" data-sort="id"><span>ID</span><span class="sort-indicator" aria-hidden="true"></span></th>
-                    <th class="sortable" data-sort="serial"><span>Serial</span><span class="sort-indicator" aria-hidden="true"></span></th>
-                    <th class="sortable" data-sort="decal"><span>Decal</span><span class="sort-indicator" aria-hidden="true"></span></th>
-                    <th class="sortable" data-sort="location"><span>Location</span><span class="sort-indicator" aria-hidden="true"></span></th>
-                    <th class="sortable" data-sort="make"><span>Make</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="serial_number"><span>Serial Number</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="asset_tag"><span>Asset Tag</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="type"><span>Type</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="model"><span>Model</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="room"><span>Cubicle / Office / Room</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="assigned_to"><span>Assigned To</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="status"><span>Status</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable d-none" data-sort="meta"><span>Meta</span><span class="sort-indicator" aria-hidden="true"></span></th>
@@ -185,36 +195,6 @@
             <button class="btn btn-outline-dark btn-sm" id="saveLocalJson">Export Local JSON</button>
             <button class="btn btn-outline-dark btn-sm" id="saveLocalCsv">Export Local CSV</button>
           </div>
-        </div>
-      </div>
-
-      <div class="col-12 col-xxl-4">
-        <div class="card shadow-sm">
-          <div class="card-header d-flex align-items-center">
-            <h6 class="mb-0">Official Snapshot</h6>
-            <div class="ms-auto">
-              <button class="btn btn-outline-secondary btn-sm" id="clearOfficial">Clear</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="d-flex gap-2 align-items-center mb-2">
-              <label class="btn btn-outline-dark btn-sm mb-0" for="loadOfficialCsv">Import Official CSV</label>
-              <input type="file" id="loadOfficialCsv" accept=".csv,text/csv" hidden/>
-              <span id="officialStats" class="badge text-bg-secondary">No file loaded</span>
-            </div>
-            <p class="text-secondary mb-2">CSV must include header <span class="code">id</span>.</p>
-            <div id="officialImportStatus" class="small text-secondary mb-2" role="status" aria-live="polite"></div>
-            <div id="officialPreviewWrap" class="vis-hide">
-              <div class="table-responsive scroll-pane table-fixed-head border rounded">
-                <table class="table table-sm mb-0" id="officialPreview">
-                  <thead></thead><tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="mt-3 text-end">
-          <a class="btn btn-success" href="#diff">Go to Change Log →</a>
         </div>
       </div>
     </div>
@@ -248,13 +228,37 @@
 
   <!-- DIFF PAGE -->
   <section id="page-diff" class="vis-hide">
-    <div class="card shadow-sm">
-      <div class="card-header"><h5 class="mb-0">Generate Change Log</h5></div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-12 col-lg-4">
-            <div class="card bg-body-secondary border-0">
-              <div class="card-body">
+        <div class="card shadow-sm">
+          <div class="card-header"><h5 class="mb-0">Generate Change Log</h5></div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-12 col-lg-4">
+                <div class="card shadow-sm mb-3">
+                  <div class="card-header d-flex align-items-center">
+                    <h6 class="mb-0">Official Snapshot</h6>
+                    <div class="ms-auto">
+                      <button class="btn btn-outline-secondary btn-sm" id="clearOfficial">Clear</button>
+                    </div>
+                  </div>
+                  <div class="card-body">
+                    <div class="d-flex gap-2 align-items-center mb-2">
+                      <label class="btn btn-outline-dark btn-sm mb-0" for="loadOfficialCsv">Import Official CSV</label>
+                      <input type="file" id="loadOfficialCsv" accept=".csv,text/csv" hidden/>
+                      <span id="officialStats" class="badge text-bg-secondary">No file loaded</span>
+                    </div>
+                    <p class="text-secondary mb-2">CSV must include header <span class="code">id</span>.</p>
+                    <div id="officialImportStatus" class="small text-secondary mb-2" role="status" aria-live="polite"></div>
+                    <div id="officialPreviewWrap" class="vis-hide">
+                      <div class="table-responsive scroll-pane table-fixed-head border rounded">
+                        <table class="table table-sm mb-0" id="officialPreview">
+                          <thead></thead><tbody></tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="card bg-body-secondary border-0">
+                  <div class="card-body">
                 <div class="form-check form-switch mb-2">
                   <input class="form-check-input" type="checkbox" id="emptyClears">
                   <label class="form-check-label" for="emptyClears">Empty means “clear field”</label>
@@ -263,7 +267,7 @@
                   <input class="form-check-input" type="checkbox" id="ignoreMeta">
                   <label class="form-check-label" for="ignoreMeta">Ignore <span class="code">meta</span> field</label>
                 </div>
-                <p class="text-secondary">Compared fields: <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span> (by <span class="code">id</span>).</p>
+                <p class="text-secondary">Compared fields: <span class="code">serial_number</span>, <span class="code">asset_tag</span>, <span class="code">type</span>, <span class="code">model</span>, <span class="code">room</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span> (by <span class="code">id</span>).</p>
                 <div class="d-grid gap-2">
                   <button class="btn btn-primary" id="btnDiff">Generate Change Log</button>
                 </div>
@@ -315,24 +319,24 @@
             <input id="m_id" class="form-control" placeholder="required"/>
           </div>
           <div class="col-12 col-md-6">
-            <label for="m_serial" class="form-label">Serial</label>
-            <input id="m_serial" class="form-control" placeholder="optional"/>
+            <label for="m_serial_number" class="form-label">Serial Number</label>
+            <input id="m_serial_number" class="form-control" placeholder="optional"/>
           </div>
           <div class="col-12 col-md-6">
-            <label for="m_decal" class="form-label">Decal</label>
-            <input id="m_decal" class="form-control" placeholder="optional"/>
+            <label for="m_asset_tag" class="form-label">Asset Tag</label>
+            <input id="m_asset_tag" class="form-control" placeholder="optional"/>
           </div>
           <div class="col-12 col-md-6">
-            <label for="m_location" class="form-label">Location</label>
-            <input id="m_location" class="form-control" placeholder="optional"/>
-          </div>
-          <div class="col-12 col-md-6">
-            <label for="m_make" class="form-label">Make</label>
-            <input id="m_make" class="form-control" placeholder="optional"/>
+            <label for="m_type" class="form-label">Type</label>
+            <input id="m_type" class="form-control" placeholder="optional"/>
           </div>
           <div class="col-12 col-md-6">
             <label for="m_model" class="form-label">Model</label>
             <input id="m_model" class="form-control" placeholder="optional"/>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="m_room" class="form-label">Cubicle / Office / Room</label>
+            <input id="m_room" class="form-control" placeholder="optional"/>
           </div>
           <div class="col-12 col-md-6">
             <label for="m_assigned_to" class="form-label">Assigned To</label>
@@ -371,24 +375,24 @@
           <input id="fb_id" class="input" placeholder="required"/>
         </div>
         <div>
-          <label>Serial</label>
-          <input id="fb_serial" class="input" placeholder="optional"/>
+          <label>Serial Number</label>
+          <input id="fb_serial_number" class="input" placeholder="optional"/>
         </div>
         <div>
-          <label>Decal</label>
-          <input id="fb_decal" class="input" placeholder="optional"/>
+          <label>Asset Tag</label>
+          <input id="fb_asset_tag" class="input" placeholder="optional"/>
         </div>
         <div>
-          <label>Location</label>
-          <input id="fb_location" class="input" placeholder="optional"/>
-        </div>
-        <div>
-          <label>Make</label>
-          <input id="fb_make" class="input" placeholder="optional"/>
+          <label>Type</label>
+          <input id="fb_type" class="input" placeholder="optional"/>
         </div>
         <div>
           <label>Model</label>
           <input id="fb_model" class="input" placeholder="optional"/>
+        </div>
+        <div>
+          <label>Cubicle / Office / Room</label>
+          <input id="fb_room" class="input" placeholder="optional"/>
         </div>
         <div>
           <label>Assigned To</label>
@@ -713,7 +717,7 @@ function setStatus(id, message, variant="info"){
 }
 
 // ======= Local Working Set =======
-const localCols = ["id","serial","decal","location","make","model","assigned_to","status","meta"];
+const localCols = ["id","serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
 const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
 let pendingRefreshOpts = {};
 let refreshTimeout = null;
@@ -728,27 +732,139 @@ function queueTableRefresh(opts){
     refreshLocalView(nextOpts);
   }, 40);
 }
-function grab(src, ...keys){
-  for(const key of keys){
-    if(!key) continue;
-    if(Object.prototype.hasOwnProperty.call(src, key)){ return src[key]; }
+function normalizeFieldKey(key){
+  return (key ?? "").toString().replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+function findMatchingKey(src, alias){
+  const target = normalizeFieldKey(alias);
+  if(!target) return undefined;
+  for(const key of Object.keys(src || {})){
+    if(normalizeFieldKey(key) === target){
+      return key;
+    }
+  }
+  return undefined;
+}
+function grab(src, ...aliases){
+  for(const alias of aliases){
+    const match = findMatchingKey(src, alias);
+    if(match !== undefined) return src[match];
   }
   return undefined;
 }
 function upgradeRow(raw){
   const src = raw || {};
-  const metaCandidate = grab(src, "meta","Meta","META","notes","Notes","NOTES");
-  return {
-    id: norm(grab(src, "id","ID","Id","tag","TAG","Tag")),
-    serial: norm(grab(src, "serial","Serial","SERIAL")),
-    decal: norm(grab(src, "decal","Decal","DECAL","tag","TAG","Tag")),
-    location: norm(grab(src, "location","Location","LOCATION","loc","Loc","LOC")),
-    make: norm(grab(src, "make","Make","MAKE")),
-    model: norm(grab(src, "model","Model","MODEL")),
-    assigned_to: norm(grab(src, "assigned_to","assignedTo","ASSIGNED_TO","Assigned_to","Assigned To","assigned to","ASSIGNED TO","person","Person","PERSON","holder","Holder","HOLDER")),
-    status: norm(grab(src, "status","Status","STATUS")),
-    meta: typeof metaCandidate === "string" ? metaCandidate : (metaCandidate != null ? JSON.stringify(metaCandidate) : "")
+  const usedKeys = new Set();
+  const take = (...aliases) => {
+    for(const alias of aliases){
+      const match = findMatchingKey(src, alias);
+      if(match !== undefined){
+        usedKeys.add(match);
+        return src[match];
+      }
+    }
+    return undefined;
   };
+  const metaSource = take("meta","metadata","notes");
+  const baseMeta = metaSource !== undefined ? parseMeta(metaSource) : {};
+  const result = {
+    id: norm(take("id","assetid","recordid","tag")),
+    serial_number: norm(take("serialnumber","serial","serialno","serial_number")),
+    asset_tag: norm(take("assettag","asset_tag","assetnumber","inventorytag")),
+    type: norm(take("type","category","devicetype")),
+    model: norm(take("model","modelnumber")),
+    room: norm(take("cubicleofficeroom","cubicle","office","room","workspace","locationdetail")) || norm(take("location")),
+    assigned_to: norm(take("assigned_to","assignedto","assignedperson","holder","assignee","deviceuser")),
+    status: norm(take("status","state"))
+  };
+  const extras = { ...baseMeta };
+  for(const [key, value] of Object.entries(src)){
+    if(usedKeys.has(key)) continue;
+    if(value === undefined || value === null) continue;
+    if(typeof value === "string" && value.trim() === "") continue;
+    extras[key] = value;
+  }
+  if(!result.id){
+    if(result.asset_tag) result.id = result.asset_tag;
+    else if(result.serial_number) result.id = result.serial_number;
+  }
+  const metaString = Object.keys(extras).length ? JSON.stringify(extras) : "";
+  result.meta = metaString;
+  return result;
+}
+function createSeedRows(count=100){
+  const types = [
+    { type:"Computer", model:"15\" Laptop Pro", name:"Laptop" },
+    { type:"Monitor", model:"24\" UltraSharp", name:"Monitor" },
+    { type:"Dock", model:"USB-C Dock Gen2", name:"Dock" }
+  ];
+  const assignedPeople = ["Jamie West","Keith Ross","Taylor Morgan","Alex Rivera","Jordan Blake","Morgan Lee","Sam Patel","Riley Chen","Casey Morgan","Avery Scott"];
+  const managers = ["Keith Ross","Morgan Lee","Riley Chen","Avery Scott"];
+  const locations = ["Riverside Annex","HQ North","Warehouse B","Innovation Lab","Remote Storage"];
+  const rooms = ["Cubicle","Office","Room","Hot Desk","Studio"];
+  const statuses = ["Installed","Stored","Returned","Shipped","Initial","Disposed"];
+  const descriptions = [
+    "Installed last week",
+    "Ready for deployment",
+    "Awaiting pickup",
+    "Returned for diagnostics",
+    "Staged for refresh",
+    "Decommission scheduled"
+  ];
+  const createdDates = [
+    "Friday, June 20, 2025",
+    "Monday, July 1, 2025",
+    "Tuesday, July 15, 2025",
+    "Wednesday, August 6, 2025"
+  ];
+  const modifiedDates = [
+    "Thursday, June 21, 2025",
+    "Tuesday, July 8, 2025",
+    "Friday, July 25, 2025",
+    "Monday, August 11, 2025"
+  ];
+  const disposalReasons = ["Obsolete","Damaged","Upgraded","Replaced","Reassigned"];
+  const rows = [];
+  for(let i=0; i<count; i++){
+    const typeInfo = types[i % types.length];
+    const assigned = assignedPeople[i % assignedPeople.length];
+    const manager = managers[i % managers.length];
+    const location = locations[i % locations.length];
+    const room = `${rooms[i % rooms.length]} ${((i % 20) + 1)}`;
+    const status = statuses[i % statuses.length];
+    const description = descriptions[i % descriptions.length];
+    const createdDate = createdDates[i % createdDates.length];
+    const modifiedDate = modifiedDates[i % modifiedDates.length];
+    const surveyNumber = `PSR-${(23 + (i % 3)).toString().padStart(2,'0')}-${(1920 + i).toString().padStart(4,'0')}`;
+    const disposalReason = disposalReasons[i % disposalReasons.length];
+    const idNumber = 46625 + i;
+    const serialNumber = 480000 + i;
+    const assetTagNumber = 92800 + i;
+    const deviceSuffix = (123200 + i).toString();
+    const record = {
+      ID: `CI-${idNumber}`,
+      Name: `${typeInfo.name}`,
+      Model: typeInfo.model,
+      Type: typeInfo.type,
+      AssetTag: `AT-${assetTagNumber}`,
+      SerialNumber: `SN-${serialNumber}`,
+      Status: status,
+      DeviceName: `${assigned.split(" ").map(w=>w[0]).join("").toUpperCase()}-${deviceSuffix}`,
+      AssignedTo: assigned,
+      ManagedBy: manager,
+      Location: location,
+      "Cubicle/Office/Room": room,
+      Description: description,
+      CreatedBy: manager,
+      CreatedDate: createdDate,
+      ModifiedBy: assigned,
+      ModifiedDate: modifiedDate,
+      SurveyNumber: surveyNumber,
+      DisposalReason: disposalReason
+    };
+    rows.push(record);
+  }
+  return rows;
 }
 const localBody = $("#localBody"); const selAll = $("#selAll");
 function rowToObj(tr){ const tds = Array.from(tr.querySelectorAll("td[data-k]")); const obj = {}; tds.forEach(td => obj[td.dataset.k] = td.textContent.trim()); return obj; }
@@ -954,15 +1070,20 @@ function handleViewMeta(tr){
   }
   const assetId = idCell?.textContent.trim() || "(no id)";
   const rawMeta = metaCell.textContent ?? "";
+  const prettyMeta = (()=>{
+    if(!rawMeta) return "";
+    try { return JSON.stringify(JSON.parse(rawMeta), null, 2); }
+    catch { return rawMeta; }
+  })();
   if(window.bootstrap && metaModalEl){
     if(metaModalTitle) metaModalTitle.textContent = `Meta – ${assetId}`;
-    if(metaModalText) metaModalText.value = rawMeta;
+    if(metaModalText) metaModalText.value = prettyMeta;
     const modal = bootstrap.Modal.getOrCreateInstance(metaModalEl);
     modal.show();
     setTimeout(()=> metaModalText?.focus(), 120);
   } else if(metaFallbackEl){
     if(metaFallbackTitle) metaFallbackTitle.innerHTML = `<strong>Meta – ${escapeHtml(assetId)}</strong>`;
-    if(metaFallbackText) metaFallbackText.value = rawMeta;
+    if(metaFallbackText) metaFallbackText.value = prettyMeta;
     metaFallbackEl.classList.add('show');
     setTimeout(()=> metaFallbackText?.focus(), 50);
   } else {
@@ -1240,7 +1361,7 @@ function clearOfficial(){
 // ======= Diff logic =======
 function diffInventories(localRows, officialRows, opts){
   const { emptyClears=false, ignoreMeta=false } = opts || {};
-  const baseFields = ["serial","decal","location","make","model","assigned_to","status","meta"];
+  const baseFields = ["serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
   const fields = baseFields.filter(f => !(ignoreMeta && f==="meta"));
   const local = toMapById(localRows); const official = toMapById(officialRows);
   const tags = new Set([...local.keys(), ...official.keys()]); const changes = [];
@@ -1390,22 +1511,22 @@ const addModalEl = document.getElementById('addModal');
 const fbModalEl = document.getElementById('fallbackModal');
 
 const m_id = document.getElementById('m_id');
-const m_serial = document.getElementById('m_serial');
-const m_decal = document.getElementById('m_decal');
-const m_location = document.getElementById('m_location');
-const m_make = document.getElementById('m_make');
+const m_serial_number = document.getElementById('m_serial_number');
+const m_asset_tag = document.getElementById('m_asset_tag');
+const m_type = document.getElementById('m_type');
 const m_model = document.getElementById('m_model');
+const m_room = document.getElementById('m_room');
 const m_assigned_to = document.getElementById('m_assigned_to');
 const m_status = document.getElementById('m_status');
 const m_status_custom = document.getElementById('m_status_custom');
 const m_meta = document.getElementById('m_meta');
 
 const fb_id = document.getElementById('fb_id');
-const fb_serial = document.getElementById('fb_serial');
-const fb_decal = document.getElementById('fb_decal');
-const fb_location = document.getElementById('fb_location');
-const fb_make = document.getElementById('fb_make');
+const fb_serial_number = document.getElementById('fb_serial_number');
+const fb_asset_tag = document.getElementById('fb_asset_tag');
+const fb_type = document.getElementById('fb_type');
 const fb_model = document.getElementById('fb_model');
+const fb_room = document.getElementById('fb_room');
 const fb_assigned_to = document.getElementById('fb_assigned_to');
 const fb_status = document.getElementById('fb_status');
 const fb_status_custom = document.getElementById('fb_status_custom');
@@ -1446,6 +1567,7 @@ const metaFallbackTitle = document.getElementById('metaFallbackTitle');
 const metaFallbackText = document.getElementById('metaFallbackText');
 const metaFallbackCancel = document.getElementById('metaFallbackCancel');
 const metaFallbackSave = document.getElementById('metaFallbackSave');
+const seedSampleBtn = document.getElementById('seedSample');
 
 if(noteModalSaveBtn && noteModalEl){
   noteModalSaveBtn.addEventListener("click", ()=>{
@@ -1529,6 +1651,17 @@ if(metaFallbackEl){
     }
   });
 }
+if(seedSampleBtn){
+  seedSampleBtn.addEventListener("click", async ()=>{
+    if(!confirm("Replace current inventory with sample data?")) return;
+    const sampleRows = createSeedRows(100).map(upgradeRow);
+    renderLocal(sampleRows);
+    await idbSet(IDB_KEY_ROWS, sampleRows);
+    queueTableRefresh({ resetPage:true });
+    showSavedToast();
+    setStatus("localImportStatus", "Sample data populated.", "success");
+  });
+}
 if(notesFallbackClose && notesFallbackEl){
   notesFallbackClose.addEventListener("click", ()=> notesFallbackEl.classList.remove('show'));
 }
@@ -1575,10 +1708,28 @@ openAdd.addEventListener("click", async ()=>{
   const arr = (await idbGet(IDB_KEY_STATUS)) || [];
   populateStatusSelect(arr);
   if(window.bootstrap){
-    m_id.value = ""; m_serial.value=""; m_decal.value=""; m_location.value=""; m_make.value=""; m_model.value=""; m_assigned_to.value=""; m_status.value=""; m_status_custom.value=""; m_meta.value="";
+    m_id.value = "";
+    if(m_serial_number) m_serial_number.value = "";
+    if(m_asset_tag) m_asset_tag.value = "";
+    if(m_type) m_type.value = "";
+    if(m_model) m_model.value = "";
+    if(m_room) m_room.value = "";
+    m_assigned_to.value = "";
+    m_status.value = "";
+    m_status_custom.value = "";
+    m_meta.value = "";
     const modal = new bootstrap.Modal(addModalEl); modal.show(); setTimeout(()=> m_id.focus(), 150);
   } else {
-    fb_id.value = ""; fb_serial.value=""; fb_decal.value=""; fb_location.value=""; fb_make.value=""; fb_model.value=""; fb_assigned_to.value=""; fb_status.value=""; fb_status_custom.value=""; fb_meta.value="";
+    fb_id.value = "";
+    if(fb_serial_number) fb_serial_number.value = "";
+    if(fb_asset_tag) fb_asset_tag.value = "";
+    if(fb_type) fb_type.value = "";
+    if(fb_model) fb_model.value = "";
+    if(fb_room) fb_room.value = "";
+    fb_assigned_to.value = "";
+    fb_status.value = "";
+    fb_status_custom.value = "";
+    fb_meta.value = "";
     fbModalEl.classList.add('show'); fb_id.focus();
   }
 });
@@ -1588,11 +1739,11 @@ if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
   const status = norm(fb_status.value) || norm(fb_status_custom.value);
   const row = {
     id,
-    serial: norm(fb_serial.value),
-    decal: norm(fb_decal.value),
-    location: norm(fb_location.value),
-    make: norm(fb_make.value),
-    model: norm(fb_model.value),
+    serial_number: norm(fb_serial_number?.value),
+    asset_tag: norm(fb_asset_tag?.value),
+    type: norm(fb_type?.value),
+    model: norm(fb_model?.value),
+    room: norm(fb_room?.value),
     assigned_to: norm(fb_assigned_to.value),
     status,
     meta: fb_meta.value.trim()
@@ -1605,11 +1756,11 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
   const status = norm(m_status.value) || norm(m_status_custom.value);
   const row = {
     id,
-    serial: norm(m_serial.value),
-    decal: norm(m_decal.value),
-    location: norm(m_location.value),
-    make: norm(m_make.value),
-    model: norm(m_model.value),
+    serial_number: norm(m_serial_number?.value),
+    asset_tag: norm(m_asset_tag?.value),
+    type: norm(m_type?.value),
+    model: norm(m_model?.value),
+    room: norm(m_room?.value),
     assigned_to: norm(m_assigned_to.value),
     status,
     meta: m_meta.value.trim()
@@ -1649,7 +1800,7 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
       }
     } catch {}
     if(!Array.isArray(rows) || rows.length===0){
-      rows = [upgradeRow({id:"HW-001", serial:"C02XXXX", decal:"DEC-1001", location:"HQ Storage", make:"Apple", model:"MacBook Pro", assigned_to:"Alice", status:"ASSIGNED", meta:'{"demo":true}'})];
+      rows = createSeedRows(100).map(upgradeRow);
       await idbSet(IDB_KEY_ROWS, rows);
     }
   }
