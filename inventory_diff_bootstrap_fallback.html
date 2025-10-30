@@ -57,6 +57,8 @@
   #localTable td[data-k="meta"] { white-space: nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 160px; display:none; }
   #localTable td.note-actions { white-space: nowrap; vertical-align: middle; }
   #localTable td.note-actions .btn { padding:.25rem .55rem; font-size:.75rem; }
+  #lastSaved { white-space: nowrap; }
+
   .columns-badge { white-space: normal; }
   .header-actions { display:flex; gap:.5rem; }
   .header-actions .btn { white-space: nowrap; }
@@ -104,8 +106,8 @@
     <div class="collapse navbar-collapse" id="topNav">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
         <li class="nav-item"><a class="nav-link" href="#inventory">Inventory</a></li>
-        <li class="nav-item"><a class="nav-link" href="#statuses">Statuses</a></li>
         <li class="nav-item"><a class="nav-link" href="#diff">Change Log</a></li>
+        <li class="nav-item"><a class="nav-link" href="#statuses">Settings</a></li>
       </ul>
       <span class="navbar-text small text-secondary">IndexedDB autosave</span>
     </div>
@@ -189,11 +191,14 @@
             </div>
             <div id="localImportStatus" class="small text-secondary mt-2" role="status" aria-live="polite"></div>
           </div>
-          <div class="card-footer d-flex gap-2">
-            <label class="btn btn-outline-dark btn-sm mb-0" for="loadLocalFile">Import Local JSON/CSV</label>
-            <input type="file" id="loadLocalFile" accept=".json,.csv,text/csv,application/json" hidden/>
-            <button class="btn btn-outline-dark btn-sm" id="saveLocalJson">Export Local JSON</button>
-            <button class="btn btn-outline-dark btn-sm" id="saveLocalCsv">Export Local CSV</button>
+          <div class="card-footer d-flex gap-2 align-items-center flex-wrap">
+            <div class="d-flex gap-2">
+              <label class="btn btn-outline-dark btn-sm mb-0" for="loadLocalFile">Import Local JSON/CSV</label>
+              <input type="file" id="loadLocalFile" accept=".json,.csv,text/csv,application/json" hidden/>
+              <button class="btn btn-outline-dark btn-sm" id="saveLocalJson">Export Local JSON</button>
+              <button class="btn btn-outline-dark btn-sm" id="saveLocalCsv">Export Local CSV</button>
+            </div>
+            <div class="ms-auto small text-secondary" id="lastSaved">Not yet saved</div>
           </div>
         </div>
       </div>
@@ -229,20 +234,20 @@
   <!-- DIFF PAGE -->
   <section id="page-diff" class="vis-hide">
         <div class="card shadow-sm">
-          <div class="card-header"><h5 class="mb-0">Generate Change Log</h5></div>
+          <div class="card-header"><h5 class="mb-0">Change Log</h5></div>
           <div class="card-body">
             <div class="row g-3">
               <div class="col-12 col-lg-4">
                 <div class="card shadow-sm mb-3">
                   <div class="card-header d-flex align-items-center">
-                    <h6 class="mb-0">Official Snapshot</h6>
+                    <h6 class="mb-0">Inventory</h6>
                     <div class="ms-auto">
                       <button class="btn btn-outline-secondary btn-sm" id="clearOfficial">Clear</button>
                     </div>
                   </div>
                   <div class="card-body">
                     <div class="d-flex gap-2 align-items-center mb-2">
-                      <label class="btn btn-outline-dark btn-sm mb-0" for="loadOfficialCsv">Import Official CSV</label>
+                      <label class="btn btn-outline-dark btn-sm mb-0" for="loadOfficialCsv">Import CSV</label>
                       <input type="file" id="loadOfficialCsv" accept=".csv,text/csv" hidden/>
                       <span id="officialStats" class="badge text-bg-secondary">No file loaded</span>
                     </div>
@@ -286,7 +291,7 @@
               <table class="table table-sm mb-0" id="diffTable">
                 <thead class="table-light">
                   <tr>
-                    <th>Action</th><th>Tag</th><th>Field</th><th>OfficialValue</th><th>LocalValue</th><th>Notes</th>
+                    <th>Action</th><th>Tag</th><th>Field</th><th>OldValue</th><th>NewValue</th><th>Notes</th>
                   </tr>
                 </thead>
                 <tbody id="diffBody"></tbody>
@@ -295,10 +300,7 @@
           </div>
         </div>
       </div>
-      <div class="card-footer d-flex justify-content-between">
-        <a class="btn btn-outline-dark" href="#inventory">← Back to Inventory</a>
-        <a class="btn btn-outline-dark" href="#statuses">Edit Statuses</a>
-      </div>
+      
     </div>
   </section>
 
@@ -525,15 +527,6 @@
   </div>
 </div>
 
-<!-- Save Toast -->
-<div class="toast align-items-center text-bg-light border-0 toast-save" id="saveToast" role="status" aria-live="polite" aria-atomic="true">
-  <div class="d-flex">
-    <div class="toast-body">
-      Saved <span id="saveTime" class="code"></span>
-    </div>
-    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-  </div>
-</div>
 
 <!-- Primary Bootstrap Bundle -->
 <script id="bs-js-1" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
@@ -642,6 +635,7 @@ const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 function norm(v){ return (v ?? '').toString().trim(); }
 function toMapById(rows){ const m = new Map(); for(const r of rows){ const id = norm(r.id); if(id) m.set(id, r); } return m; }
+
 function parseCSV(text){
   const rows = []; let i=0, cur='', inQ=false, row=[];
   const pushCell=()=>{ row.push(cur); cur=''; }, pushRow=()=>{ rows.push(row); row=[]; };
@@ -653,58 +647,53 @@ function parseCSV(text){
     } else {
       if(ch === '"'){ inQ=true; }
       else if(ch === ','){ pushCell(); }
-      else if(ch === '\\r'){}
-      else if(ch === '\\n'){ pushCell(); pushRow(); }
+      else if(ch === '\r'){}
+      else if(ch === '\n'){ pushCell(); pushRow(); }
       else { cur += ch; }
     }
   }
   pushCell(); pushRow();
   if(rows.length && rows[rows.length-1].every(c=>c==='')) rows.pop();
   if(rows.length===0) return {headers:[],rows:[]};
-  const headers = rows[0].map(h=>h.trim());
+  const headers = rows[0].map(h=>h.trim().replace(/^\ufeff/, ""));
   const outRows = rows.slice(1).map(r => {
     const obj = {}; headers.forEach((h,idx)=> obj[h] = (r[idx] ?? '').trim()); return obj;
   });
   return { headers, rows: outRows };
 }
+
+function normalizeCSVText(text){
+  if(!text) return text;
+  let t = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  while(t.includes("\\n")){
+    t = t.replace(/\\n/g, "\n");
+  }
+  return t;
+}
 function toCSV(rows){
-  const cols = ["Action","Tag","Field","OfficialValue","LocalValue","Notes"];
+  const cols = ["Action","Tag","Field","OldValue","NewValue","Notes"];
   const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
   const head = cols.join(",");
   const lines = rows.map(r => cols.map(c => esc(r[c])).join(","));
-  return [head,...lines].join("\\n");
+  return [head,...lines].join("\n");
 }
 function toMarkdown(rows){
-  const cols = ["Action","Tag","Field","OfficialValue","LocalValue","Notes"];
-  const head = `| ${cols.join(" | ")} |\\n| ${cols.map(()=>"-").join(" | ")} |`;
+  const cols = ["Action","Tag","Field","OldValue","NewValue","Notes"];
+  const head = `| ${cols.join(" | ")} |\n| ${cols.map(()=>"-").join(" | ")} |`;
   const lines = rows.map(r => `| ${cols.map(c => String(r[c] ?? "")).join(" | ")} |`);
-  return [head, ...lines].join("\\n");
+  return [head, ...lines].join("\n");
 }
 
 // ======= Save Toast (Bootstrap or fallback) =======
-const toastEl = document.getElementById('saveToast');
-let showSavedToast = ()=>{
-  // fallback toast
-  const span = document.getElementById('saveTime');
-  const ts = new Date(); const hh = String(ts.getHours()).padStart(2,'0');
-  const mm = String(ts.getMinutes()).padStart(2,'0'); const ss = String(ts.getSeconds()).padStart(2,'0');
-  span.textContent = `at ${hh}:${mm}:${ss}`;
-  toastEl.style.display = 'block';
-  setTimeout(()=> toastEl.style.display='none', 1400);
-};
-window.addEventListener('DOMContentLoaded', ()=>{
-  if(window.bootstrap){
-    const bsToast = new bootstrap.Toast(toastEl, { delay: 1400 });
-    showSavedToast = ()=>{
-      const span = document.getElementById('saveTime');
-      const ts = new Date(); const hh = String(ts.getHours()).padStart(2,'0');
-      const mm = String(ts.getMinutes()).padStart(2,'0'); const ss = String(ts.getSeconds()).padStart(2,'0');
-      span.textContent = `at ${hh}:${mm}:${ss}`;
-      bsToast.show();
-    };
-  }
-});
-
+const lastSavedEl = document.getElementById('lastSaved');
+function updateLastSaved(){
+  if(!lastSavedEl) return;
+  const ts = new Date();
+  const hh = String(ts.getHours()).padStart(2,'0');
+  const mm = String(ts.getMinutes()).padStart(2,'0');
+  const ss = String(ts.getSeconds()).padStart(2,'0');
+  lastSavedEl.textContent = `Last saved at ${hh}:${mm}:${ss}`;
+}
 function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; }
 function setStatus(id, message, variant="info"){
   const el = document.getElementById(id);
@@ -906,7 +895,13 @@ function objToRow(obj){
     updateNoteButtonState(tr);
     updateMetaButtonState(tr);
     scheduleSave();
-    scheduleRefresh();
+  });
+  tr.addEventListener("focusout", ()=>{
+    setTimeout(()=>{
+      const active = document.activeElement;
+      if(active && tr.contains(active)) return;
+      scheduleRefresh();
+    }, 0);
   });
   updateNoteButtonState(tr);
   updateMetaButtonState(tr);
@@ -926,7 +921,7 @@ function addRow(data={}){
   localBody.appendChild(objToRow(upgradeRow(data)));
   queueTableRefresh();
   saveLocalToIDB().then(()=>{
-    showSavedToast();
+    updateLastSaved();
   });
 }
 function asMetaText(meta){
@@ -1308,12 +1303,12 @@ function refreshLocalView(opts){
 function deleteSelected(){
   $$(".selRow:checked").forEach(cb => cb.closest("tr").remove());
   queueTableRefresh();
-  saveLocalToIDB().then(()=>{ showSavedToast(); });
+  saveLocalToIDB().then(()=>{ updateLastSaved(); });
 }
 function clearAll(){
   localBody.innerHTML = "";
   queueTableRefresh({ resetPage:true });
-  saveLocalToIDB().then(()=>{ showSavedToast(); });
+  saveLocalToIDB().then(()=>{ updateLastSaved(); });
 }
 selAll.addEventListener("change", e => { $$(".selRow").forEach(cb => cb.checked = selAll.checked); });
 
@@ -1340,14 +1335,10 @@ function loadOfficialCSVObjects(rows, opts){
   officialRows = rows;
   const statsLabel = opts?.statsLabel ?? `${rows.length} row(s) ready`;
   officialStats.textContent = statsLabel;
-  const cols = (()=> {
-    const first = rows[0];
-    const keys = first ? Object.keys(first) : [];
-    return keys.length ? keys : localCols;
-  })();
-  officialPreviewHead.innerHTML = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>";
-  officialPreviewBody.innerHTML = rows.slice(0,20).map(r => "<tr>" + cols.map(c => `<td>${(r[c]??"")}</td>`).join("") + "</tr>").join("");
-  officialPreviewWrap.classList.toggle("vis-hide", rows.length===0);
+  officialPreviewHead.innerHTML = "";
+  officialPreviewBody.innerHTML = "";
+  officialPreviewWrap.textContent = "";
+  officialPreviewWrap.classList.add("vis-hide");
 }
 function clearOfficial(){
   officialRows = [];
@@ -1367,11 +1358,11 @@ function diffInventories(localRows, officialRows, opts){
   const tags = new Set([...local.keys(), ...official.keys()]); const changes = [];
   for(const id of tags){
     const L = local.get(id); const O = official.get(id);
-    if(L && !O){ changes.push({Action:"ADD", Tag:id, Field:"(all)", OfficialValue:"", LocalValue:JSON.stringify(L), Notes:""}); continue; }
-    if(!L && O){ changes.push({Action:"REMOVE", Tag:id, Field:"(all)", OfficialValue:JSON.stringify(O), LocalValue:"", Notes:"Not in local working set"}); continue; }
+    if(L && !O){ changes.push({Action:"ADD", Tag:id, Field:"(all)", OldValue:"", NewValue:JSON.stringify(L), Notes:""}); continue; }
+    if(!L && O){ changes.push({Action:"REMOVE", Tag:id, Field:"(all)", OldValue:JSON.stringify(O), NewValue:"", Notes:"Not in local working set"}); continue; }
     for(const f of fields){
       const o = norm(O?.[f]); const l = norm(L?.[f]); const isEmptyNoOp = !emptyClears && l === ""; const changed = isEmptyNoOp ? false : (o !== l);
-      if(changed){ changes.push({Action:"UPDATE", Tag:id, Field:f, OfficialValue:o, LocalValue:l, Notes:""}); }
+      if(changed){ changes.push({Action:"UPDATE", Tag:id, Field:f, OldValue:o, NewValue:l, Notes:""}); }
     }
   }
   return changes;
@@ -1381,8 +1372,8 @@ function renderDiff(rows){
   for(const r of rows){
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${r.Action}</td><td class="code">${r.Tag}</td><td>${r.Field}</td>
-      <td class="code">${escapeHtml(r.OfficialValue)}</td>
-      <td class="code">${escapeHtml(r.LocalValue)}</td><td>${r.Notes??""}</td>`;
+      <td class="code">${escapeHtml(r.OldValue)}</td>
+      <td class="code">${escapeHtml(r.NewValue)}</td><td>${r.Notes??""}</td>`;
     tbody.appendChild(tr);
   }
   $("#diffStats").textContent = rows.length ? `${rows.length} change(s)` : "No differences";
@@ -1404,7 +1395,7 @@ $("#saveLocalCsv").addEventListener("click", ()=>{
   const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
   const lines = rows.map(r => cols.map(c => esc(r[c])).join(","));
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([[head, ...lines].join("\\n")], {type:"text/csv"}));
+  a.href = URL.createObjectURL(new Blob([[head, ...lines].join("\n")], {type:"text/csv"}));
   a.download = "local-working-set.csv"; a.click();
 });
 
@@ -1413,7 +1404,8 @@ $("#loadLocalFile").addEventListener("change", async (e)=>{
   if(!f){ setStatus("localImportStatus", "No file selected.", "info"); return; }
   setStatus("localImportStatus", `Reading "${f.name}"…`, "info");
   try{
-    const text = await f.text();
+    let text = await f.text();
+    text = normalizeCSVText(text);
     let rows;
     if(f.name.toLowerCase().endsWith(".json")){
       rows = JSON.parse(text);
@@ -1452,7 +1444,8 @@ $("#loadOfficialCsv").addEventListener("change", async (e)=>{
   if(!f){ setStatus("officialImportStatus", "No file selected.", "info"); return; }
   setStatus("officialImportStatus", `Reading "${f.name}"…`, "info");
   try{
-    const text = await f.text();
+    let text = await f.text();
+    text = normalizeCSVText(text);
     const { headers, rows } = parseCSV(text);
     if(headers.length===0) throw new Error("No headers found");
     const canonical = rows.map(r => {
@@ -1805,6 +1798,7 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
     }
   }
   renderLocal(rows);
+  updateLastSaved();
 })();
 </script>
 </body>
