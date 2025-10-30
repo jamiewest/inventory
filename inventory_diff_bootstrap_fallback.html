@@ -33,6 +33,7 @@
   .fallback table { width:100%; border-collapse:collapse; }
   .fallback th, .fallback td { border-bottom:1px solid #e5e9f2; padding:.5rem; vertical-align:top; }
   .fallback .toast-save { position: fixed; right: 1rem; bottom: 1rem; background:#ffffff; border:1px solid #d0d7de; padding:.4rem .6rem; border-radius:.4rem; }
+  .fallback .ms-1 { margin-left:.25rem; }
   /* Custom modal fallback */
   .modal-fb { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
   .modal-fb.show { display:flex; }
@@ -42,6 +43,46 @@
   .form-grid { display:grid; grid-template-columns:1fr; gap:.5rem; }
   @media(min-width:760px){ .form-grid { grid-template-columns: 1fr 1fr; } .form-grid .full { grid-column:1 / -1; } }
   .input, select, textarea { width:100%; padding:.5rem .6rem; border:1px solid #c2c8d0; border-radius:.4rem; background:#ffffff; color:#1f2933; }
+  .notes-pre { background:#f3f4f6; padding:.75rem; border-radius:.5rem; max-height:240px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .notes-list ol { padding-left:1.25rem; margin-bottom:0; }
+  .notes-list li + li { margin-top:.5rem; }
+  .notes-list time { display:block; font-size:.875rem; color:#64748b; }
+  .sortable { cursor:pointer; user-select:none; }
+  .sortable .sort-indicator { margin-left:.25rem; font-size:.75rem; color:#94a3b8; }
+  .sortable.sorted .sort-indicator { color:#0d6efd; }
+  #localTable td { word-break: break-word; }
+  #localTable td[data-k="meta"] { white-space: nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 160px; display:none; }
+  #localTable td.note-actions { white-space: nowrap; vertical-align: middle; }
+  #localTable td.note-actions .btn { padding:.25rem .55rem; font-size:.75rem; }
+  .columns-badge { white-space: normal; }
+  .header-actions { display:flex; gap:.5rem; }
+  .header-actions .btn { white-space: nowrap; }
+  .card-header.flex-responsive { display:flex; align-items:center; gap:.75rem; }
+  .card-header.flex-responsive .header-title { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+  .card-header.flex-responsive .columns-badge { margin-left:.25rem; }
+  .card-header.flex-responsive .header-actions { margin-left:auto; }
+  @media (max-width: 992px){
+    .card-header.flex-responsive { flex-direction:column; align-items:flex-start; }
+    .card-header.flex-responsive .header-actions { width:100%; flex-wrap:wrap; margin-left:0; }
+    .card-header.flex-responsive .header-actions .btn { flex:1 1 160px; }
+  }
+  @media (max-width: 768px){
+    .card-header.flex-responsive .columns-badge { display:none; }
+  }
+  @media (max-width: 576px){
+    #localTable td.note-actions { display:flex; flex-direction:column; gap:.25rem; align-items:stretch; }
+    #localTable td.note-actions .btn { width:100%; }
+    #localTable td.note-actions .btn.ms-1 { margin-left:0; }
+    .card-header.flex-responsive .header-actions .btn { flex:1 0 calc(50% - .25rem); }
+  }
+  .fallback .d-none { display:none !important; }
+  .fallback .header-actions { flex-wrap:wrap; gap:.5rem; }
+  .fallback .header-actions .btn { flex:1 0 calc(50% - .25rem); }
+  .fallback .note-actions { white-space:normal; display:flex; flex-direction:column; gap:.25rem; }
+  .fallback .note-actions .btn { width:100%; }
+  .fallback .sortable { cursor:pointer; }
+  .fallback .sortable .sort-indicator { color:#6b7280; }
+  .fallback .sortable.sorted .sort-indicator { color:#0d6efd; }
 </style>
 </head>
 <body>
@@ -70,10 +111,12 @@
     <div class="row g-3">
       <div class="col-12 col-xxl-8">
         <div class="card shadow-sm">
-          <div class="card-header d-flex align-items-center">
-            <h5 class="mb-0">Inventory</h5>
-            <span class="badge text-bg-secondary ms-2">Columns: <span class="code">id</span>, <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
-            <div class="ms-auto d-flex gap-2">
+          <div class="card-header d-flex align-items-center flex-responsive">
+            <div class="header-title">
+              <h5 class="mb-0">Inventory</h5>
+              <span class="badge text-bg-secondary columns-badge">Columns: <span class="code">id</span>, <span class="code">serial</span>, <span class="code">decal</span>, <span class="code">location</span>, <span class="code">make</span>, <span class="code">model</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
+            </div>
+            <div class="header-actions">
               <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
               <button class="btn btn-outline-secondary btn-sm" id="clearAll">Clear all</button>
@@ -81,16 +124,58 @@
           </div>
           <div class="card-body pt-2">
             <p class="text-secondary">Primary key: <span class="code">id</span>. Meta can be any text or JSON.</p>
+            <div class="row g-2 align-items-end mb-3" id="localToolbar">
+              <div class="col-12 col-lg-5">
+                <label for="localSearch" class="form-label mb-1">Search inventory</label>
+                <input id="localSearch" class="form-control form-control-sm" placeholder="Search id, serial, assigned, status, meta…"/>
+              </div>
+              <div class="col-6 col-lg-3">
+                <label for="localStatusFilter" class="form-label mb-1">Status filter</label>
+                <select id="localStatusFilter" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                </select>
+              </div>
+              <div class="col-6 col-lg-2">
+                <label for="localPageSize" class="form-label mb-1">Rows per page</label>
+                <select id="localPageSize" class="form-select form-select-sm">
+                  <option value="10">10</option>
+                  <option value="25" selected>25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+              <div class="col-12 col-lg-2 d-none d-lg-block text-lg-end text-secondary small">
+                <span>Tip: click column headers to sort</span>
+              </div>
+            </div>
+            <div id="localFilterStatus" class="small text-secondary mb-2" role="status" aria-live="polite"></div>
             <div class="table-responsive scroll-pane table-fixed-head border rounded">
               <table class="table table-sm align-middle mb-0" id="localTable">
                 <thead class="table-light">
                   <tr>
                     <th style="width:36px;"><input class="form-check-input" type="checkbox" id="selAll"></th>
-                    <th>id</th><th>serial</th><th>decal</th><th>location</th><th>make</th><th>model</th><th>assigned_to</th><th>status</th><th>meta</th>
+                    <th class="sortable" data-sort="id"><span>ID</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="serial"><span>Serial</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="decal"><span>Decal</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="location"><span>Location</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="make"><span>Make</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="model"><span>Model</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="assigned_to"><span>Assigned To</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable" data-sort="status"><span>Status</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="sortable d-none" data-sort="meta"><span>Meta</span><span class="sort-indicator" aria-hidden="true"></span></th>
+                    <th class="text-center text-nowrap">Details</th>
                   </tr>
                 </thead>
                 <tbody id="localBody"></tbody>
               </table>
+            </div>
+            <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between mt-2 gap-2" id="localPaginationBar">
+              <div id="localPaginationInfo" class="small text-secondary"></div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" id="localPrevPage">Previous</button>
+                <button class="btn btn-outline-secondary btn-sm" id="localNextPage">Next</button>
+              </div>
             </div>
             <div id="localImportStatus" class="small text-secondary mt-2" role="status" aria-live="polite"></div>
           </div>
@@ -329,6 +414,113 @@
   </div>
 </div>
 
+<!-- View Notes Modal -->
+<div class="modal fade" id="notesModal" tabindex="-1" aria-labelledby="notesTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="notesTitle">Asset Notes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="notesList" class="notes-list mb-3"></div>
+        <div>
+          <div class="small text-secondary mb-1">Meta JSON</div>
+          <pre id="notesMetaJson" class="notes-pre"></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Note Modal -->
+<div class="modal fade" id="noteModal" tabindex="-1" aria-labelledby="noteModalTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="noteModalTitle">Add Note</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="noteText" class="form-label">Note</label>
+          <textarea id="noteText" class="form-control" rows="4" placeholder="Enter details..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="noteModalSave">Save note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Meta Modal -->
+<div class="modal fade" id="metaModal" tabindex="-1" aria-labelledby="metaModalTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="metaModalTitle">Meta</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="metaModalText" class="form-label">Meta (stored as text/JSON)</label>
+        <textarea id="metaModalText" class="form-control" rows="6" placeholder='e.g. {"color":"black"}'></textarea>
+        <div class="form-text">Leave blank to clear. JSON is optional.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="metaModalSave">Save meta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Notes fallback (if Bootstrap JS unavailable) -->
+<div id="notesFallback" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header id="notesFallbackTitle"><strong>Asset Notes</strong></header>
+    <div class="content">
+      <div id="notesFallbackContent" class="small"></div>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="notesFallbackClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Note input fallback -->
+<div id="noteFallback" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header id="noteFallbackTitle"><strong>Add Note</strong></header>
+    <div class="content">
+      <textarea id="noteFallbackText" class="input" rows="4" placeholder="Enter details..."></textarea>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="noteFallbackCancel">Cancel</button>
+      <button class="btn btn-primary" id="noteFallbackSave">Save note</button>
+    </div>
+  </div>
+</div>
+
+<!-- Meta fallback -->
+<div id="metaFallback" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header id="metaFallbackTitle"><strong>Meta</strong></header>
+    <div class="content">
+      <textarea id="metaFallbackText" class="input" rows="6" placeholder='e.g. {"color":"black"}'></textarea>
+      <div class="small text-secondary" style="margin-top:.5rem;">Leave blank to clear. JSON is optional.</div>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="metaFallbackCancel">Cancel</button>
+      <button class="btn btn-primary" id="metaFallbackSave">Save meta</button>
+    </div>
+  </div>
+</div>
+
 <!-- Save Toast -->
 <div class="toast align-items-center text-bg-light border-0 toast-save" id="saveToast" role="status" aria-live="polite" aria-atomic="true">
   <div class="d-flex">
@@ -522,6 +714,20 @@ function setStatus(id, message, variant="info"){
 
 // ======= Local Working Set =======
 const localCols = ["id","serial","decal","location","make","model","assigned_to","status","meta"];
+const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
+let pendingRefreshOpts = {};
+let refreshTimeout = null;
+const SORTABLE_COLS = new Set(localCols.concat("meta"));
+function queueTableRefresh(opts){
+  pendingRefreshOpts = Object.assign(pendingRefreshOpts, opts || {});
+  if(refreshTimeout) return;
+  refreshTimeout = setTimeout(()=>{
+    const nextOpts = pendingRefreshOpts;
+    pendingRefreshOpts = {};
+    refreshTimeout = null;
+    refreshLocalView(nextOpts);
+  }, 40);
+}
 function grab(src, ...keys){
   for(const key of keys){
     if(!key) continue;
@@ -549,13 +755,51 @@ function rowToObj(tr){ const tds = Array.from(tr.querySelectorAll("td[data-k]"))
 function objToRow(obj){
   const tr = document.createElement("tr");
   const tdSel = document.createElement("td"); tdSel.innerHTML = '<input class="form-check-input selRow" type="checkbox">'; tr.appendChild(tdSel);
-  for(const k of localCols){ const td = document.createElement("td"); td.contentEditable = "true"; td.dataset.k = k; td.textContent = obj?.[k] ?? ""; tr.appendChild(td); }
-  tr.addEventListener("input", debounce(async ()=>{ await saveLocalToIDB(); showSavedToast(); }, 400));
+  for(const k of localCols){
+    const td = document.createElement("td");
+    td.contentEditable = "true";
+    td.dataset.k = k;
+    const value = k === "meta" ? asMetaText(obj?.meta) : (obj?.[k] ?? "");
+    td.textContent = value;
+    tr.appendChild(td);
+  }
+  const tdNote = document.createElement("td");
+  tdNote.className = "text-center note-actions";
+  const metaBtn = document.createElement("button");
+  metaBtn.type = "button";
+  metaBtn.className = "btn btn-sm btn-outline-secondary view-meta-btn";
+  metaBtn.textContent = "Meta";
+  metaBtn.addEventListener("click", ()=> handleViewMeta(tr));
+  tdNote.appendChild(metaBtn);
+  const noteBtn = document.createElement("button");
+  noteBtn.type = "button";
+  noteBtn.className = "btn btn-sm btn-outline-primary ms-1 add-note-btn";
+  noteBtn.textContent = "Add Note";
+  noteBtn.addEventListener("click", ()=> handleAddNote(tr));
+  tdNote.appendChild(noteBtn);
+  const viewBtn = document.createElement("button");
+  viewBtn.type = "button";
+  viewBtn.className = "btn btn-sm btn-outline-secondary ms-1 view-note-btn";
+  viewBtn.textContent = "Notes";
+  viewBtn.addEventListener("click", ()=> handleViewNotes(tr));
+  tdNote.appendChild(viewBtn);
+  tr.appendChild(tdNote);
+  const scheduleSave = debounce(async ()=>{ await saveLocalToIDB(); showSavedToast(); }, 400);
+  const scheduleRefresh = debounce(()=> queueTableRefresh(), 120);
+  tr.addEventListener("input", ()=>{
+    updateNoteButtonState(tr);
+    updateMetaButtonState(tr);
+    scheduleSave();
+    scheduleRefresh();
+  });
+  updateNoteButtonState(tr);
+  updateMetaButtonState(tr);
   return tr;
 }
 function renderLocal(rows){
   localBody.innerHTML = "";
   (rows || []).map(upgradeRow).forEach(r => localBody.appendChild(objToRow(r)));
+  queueTableRefresh({ resetPage:true });
 }
 function readLocal(){ return Array.from(localBody.querySelectorAll("tr")).map(rowToObj).filter(r => Object.values(r).some(v => v !== "")); }
 async function saveLocalToIDB(){
@@ -564,10 +808,392 @@ async function saveLocalToIDB(){
 }
 function addRow(data={}){
   localBody.appendChild(objToRow(upgradeRow(data)));
-  saveLocalToIDB().then(showSavedToast);
+  queueTableRefresh();
+  saveLocalToIDB().then(()=>{
+    showSavedToast();
+  });
 }
-function deleteSelected(){ $$(".selRow:checked").forEach(cb => cb.closest("tr").remove()); saveLocalToIDB().then(showSavedToast); }
-function clearAll(){ localBody.innerHTML = ""; saveLocalToIDB().then(showSavedToast); }
+function asMetaText(meta){
+  if(meta === undefined || meta === null) return "";
+  if(typeof meta === "string") return meta;
+  try { return JSON.stringify(meta); } catch { return String(meta); }
+}
+function parseMeta(metaText){
+  const raw = asMetaText(metaText).trim();
+  if(!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if(parsed && typeof parsed === "object") return parsed;
+    return { value: parsed };
+  } catch {
+    return { previousMeta: raw };
+  }
+}
+function toNoteArray(notes){
+  if(notes === undefined || notes === null) return [];
+  const source = Array.isArray(notes) ? notes : [notes];
+  const out = [];
+  for(const entry of source){
+    if(entry === undefined || entry === null) continue;
+    if(typeof entry === "object"){
+      const copy = { ...entry };
+      if(copy.note !== undefined) copy.note = String(copy.note ?? "");
+      out.push(copy);
+    } else {
+      const text = String(entry);
+      if(text.trim() === "") continue;
+      out.push({ note: text });
+    }
+  }
+  return out.filter(item => (item.note ?? "").toString().trim() !== "" || item.date !== undefined);
+}
+function formatNoteTimestamp(value){
+  if(value === undefined || value === null || value === ""){
+    return "No date provided";
+  }
+  let date = new Date(value);
+  if(Number.isNaN(date.getTime())){
+    const num = Number(value);
+    if(!Number.isNaN(num)){
+      date = new Date(num);
+    }
+  }
+  if(Number.isNaN(date.getTime())){
+    return String(value);
+  }
+  return date.toLocaleString();
+}
+function updateNoteButtonState(tr){
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  const viewBtn = tr.querySelector(".view-note-btn");
+  if(!metaCell || !viewBtn) return;
+  const notes = toNoteArray(parseMeta(metaCell.textContent).notes);
+  const count = notes.length;
+  viewBtn.textContent = count ? `Notes (${count})` : "Notes";
+  viewBtn.classList.toggle("btn-secondary", count > 0);
+  viewBtn.classList.toggle("btn-outline-secondary", count === 0);
+  viewBtn.title = count ? `${count} note${count===1?"":"s"}` : "No notes yet";
+}
+function updateMetaButtonState(tr){
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  const metaBtn = tr.querySelector(".view-meta-btn");
+  if(!metaCell || !metaBtn) return;
+  const hasMeta = metaCell.textContent.trim().length > 0;
+  metaBtn.classList.toggle("btn-secondary", hasMeta);
+  metaBtn.classList.toggle("btn-outline-secondary", !hasMeta);
+  metaBtn.textContent = hasMeta ? "Meta •" : "Meta";
+  metaBtn.title = hasMeta ? metaCell.textContent : "No meta stored";
+}
+let currentNoteRow = null;
+let currentMetaRow = null;
+function handleAddNote(tr){
+  currentNoteRow = tr;
+  const idCell = tr.querySelector('td[data-k="id"]');
+  const assetId = idCell?.textContent.trim() || "(no id)";
+  if(window.bootstrap && noteModalEl){
+    if(noteModalTitle) noteModalTitle.textContent = `Add Note – ${assetId}`;
+    if(noteTextEl) noteTextEl.value = "";
+    const modal = bootstrap.Modal.getOrCreateInstance(noteModalEl);
+    modal.show();
+    setTimeout(()=> noteTextEl?.focus(), 120);
+  } else if(noteFallbackEl){
+    if(noteFallbackTitle) noteFallbackTitle.innerHTML = `<strong>Add Note – ${escapeHtml(assetId)}</strong>`;
+    if(noteFallbackText) noteFallbackText.value = "";
+    noteFallbackEl.classList.add('show');
+    setTimeout(()=> noteFallbackText?.focus(), 50);
+  } else {
+    setStatus("localImportStatus", "Note entry UI unavailable in this environment.", "error");
+  }
+}
+function commitNote(noteTextRaw){
+  const tr = currentNoteRow;
+  if(!tr){
+    setStatus("localImportStatus", "No row selected for note.", "error");
+    return false;
+  }
+  const noteText = noteTextRaw.trim();
+  if(noteText === ""){
+    setStatus("localImportStatus", "Empty note discarded.", "info");
+    return false;
+  }
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  if(!metaCell){
+    setStatus("localImportStatus", "Unable to locate meta field for this row.", "error");
+    return false;
+  }
+  const metaObj = parseMeta(metaCell.textContent);
+  const entry = { date: Date.now(), note: noteText };
+  if(metaObj.notes === undefined){
+    metaObj.notes = entry;
+  } else if(Array.isArray(metaObj.notes)){
+    metaObj.notes.push(entry);
+  } else {
+    metaObj.notes = [metaObj.notes, entry];
+  }
+  metaCell.textContent = JSON.stringify(metaObj);
+  updateNoteButtonState(tr);
+  updateMetaButtonState(tr);
+  saveLocalToIDB().then(()=>{
+    showSavedToast();
+    const ts = new Date(entry.date).toLocaleString();
+    setStatus("localImportStatus", `Note added (${ts}).`, "success");
+    queueTableRefresh();
+    currentNoteRow = null;
+  }).catch(err=>{
+    setStatus("localImportStatus", `Failed to save note: ${err.message}`, "error");
+  });
+  return true;
+}
+function handleViewMeta(tr){
+  currentMetaRow = tr;
+  const idCell = tr.querySelector('td[data-k="id"]');
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  if(!metaCell){
+    setStatus("localImportStatus", "Unable to locate meta field for this row.", "error");
+    return;
+  }
+  const assetId = idCell?.textContent.trim() || "(no id)";
+  const rawMeta = metaCell.textContent ?? "";
+  if(window.bootstrap && metaModalEl){
+    if(metaModalTitle) metaModalTitle.textContent = `Meta – ${assetId}`;
+    if(metaModalText) metaModalText.value = rawMeta;
+    const modal = bootstrap.Modal.getOrCreateInstance(metaModalEl);
+    modal.show();
+    setTimeout(()=> metaModalText?.focus(), 120);
+  } else if(metaFallbackEl){
+    if(metaFallbackTitle) metaFallbackTitle.innerHTML = `<strong>Meta – ${escapeHtml(assetId)}</strong>`;
+    if(metaFallbackText) metaFallbackText.value = rawMeta;
+    metaFallbackEl.classList.add('show');
+    setTimeout(()=> metaFallbackText?.focus(), 50);
+  } else {
+    setStatus("localImportStatus", "Meta viewer unavailable in this environment.", "error");
+  }
+}
+function commitMetaValue(valueRaw){
+  const tr = currentMetaRow;
+  if(!tr){
+    setStatus("localImportStatus", "No row selected for meta.", "error");
+    return false;
+  }
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  if(!metaCell){
+    setStatus("localImportStatus", "Unable to locate meta field for this row.", "error");
+    return false;
+  }
+  const metaValue = typeof valueRaw === "string" ? valueRaw.trim() : "";
+  metaCell.textContent = metaValue;
+  updateMetaButtonState(tr);
+  updateNoteButtonState(tr);
+  queueTableRefresh();
+  saveLocalToIDB().then(()=>{
+    showSavedToast();
+    const message = metaValue ? "Meta updated." : "Meta cleared.";
+    setStatus("localImportStatus", message, "success");
+    currentMetaRow = null;
+  }).catch(err=>{
+    setStatus("localImportStatus", `Failed to save meta: ${err.message}`, "error");
+  });
+  return true;
+}
+function handleViewNotes(tr){
+  const idCell = tr.querySelector('td[data-k="id"]');
+  const metaCell = tr.querySelector('td[data-k="meta"]');
+  if(!metaCell){
+    setStatus("localImportStatus", "Unable to locate meta field for this row.", "error");
+    return;
+  }
+  const assetId = idCell?.textContent.trim() || "(no id)";
+  const rawMeta = metaCell.textContent ?? "";
+  const parsedMeta = parseMeta(rawMeta);
+  const notes = toNoteArray(parsedMeta.notes);
+  const listHtml = notes.length
+    ? `<ol class="mb-0">${notes.map(entry=>{
+        const timestamp = formatNoteTimestamp(entry.date);
+        const noteText = (entry.note ?? "").toString();
+        const formattedNote = noteText
+          ? escapeHtml(noteText).replace(/\n/g,"<br>")
+          : '<span class="text-secondary fst-italic">No note text</span>';
+        const extrasKeys = Object.keys(entry).filter(k => k !== "note" && k !== "date");
+        const extras = extrasKeys.length
+          ? `<div class="small text-secondary">${extrasKeys.map(k => `${escapeHtml(k)}: ${escapeHtml(String(entry[k]))}`).join(", ")}</div>`
+          : "";
+        return `<li><time>${escapeHtml(timestamp)}</time><div>${formattedNote}</div>${extras}</li>`;
+      }).join("")}</ol>`
+    : '<p class="text-secondary mb-0">No notes recorded yet.</p>';
+  let prettyMeta = rawMeta.trim();
+  if(prettyMeta){
+    try {
+      prettyMeta = JSON.stringify(JSON.parse(rawMeta), null, 2);
+    } catch {}
+  } else {
+    prettyMeta = "(empty)";
+  }
+  if(window.bootstrap && notesModalEl){
+    notesTitleEl.textContent = `Notes – ${assetId}`;
+    notesListEl.innerHTML = listHtml;
+    notesMetaEl.textContent = prettyMeta;
+    const modal = bootstrap.Modal.getOrCreateInstance(notesModalEl);
+    modal.show();
+  } else if(notesFallbackEl){
+    notesFallbackTitle.innerHTML = `<strong>Notes – ${escapeHtml(assetId)}</strong>`;
+    notesFallbackContent.innerHTML = `${listHtml}<hr><div class="small text-secondary mb-1">Meta JSON</div><pre class="notes-pre">${escapeHtml(prettyMeta)}</pre>`;
+    notesFallbackEl.classList.add('show');
+  } else {
+    setStatus("localImportStatus", "Unable to display notes viewer.", "error");
+  }
+}
+function normalizeSearchValue(value){
+  return (value ?? "").toString().toLowerCase();
+}
+function compareValues(a, b, key){
+  const vaRaw = a[key] ?? "";
+  const vbRaw = b[key] ?? "";
+  const vaStr = (vaRaw ?? "").toString().trim();
+  const vbStr = (vbRaw ?? "").toString().trim();
+  const na = Number(vaStr);
+  const nb = Number(vbStr);
+  const bothNumeric = !Number.isNaN(na) && !Number.isNaN(nb);
+  if(bothNumeric){
+    if(na < nb) return -1;
+    if(na > nb) return 1;
+    return 0;
+  }
+  return vaStr.localeCompare(vbStr, undefined, { sensitivity:"base", numeric:true });
+}
+function updateSortIndicators(){
+  const ths = document.querySelectorAll('#localTable thead th[data-sort]');
+  ths.forEach(th => {
+    const key = th.dataset.sort;
+    const indicator = th.querySelector('.sort-indicator');
+    const isActive = key === tableState.sortBy;
+    th.classList.toggle('sorted', isActive);
+    const dir = isActive ? tableState.sortDir : "none";
+    th.setAttribute("aria-sort", dir === "none" ? "none" : (dir === "asc" ? "ascending" : "descending"));
+    if(indicator){
+      let symbol = "↕";
+      if(isActive){
+        symbol = tableState.sortDir === "asc" ? "▲" : "▼";
+      }
+      indicator.textContent = symbol;
+    }
+  });
+}
+function updateStatusFilterOptions(source){
+  if(!localStatusFilter) return;
+  const arr = Array.isArray(source) ? source : [];
+  const deduped = Array.from(new Set(arr.filter(Boolean).map(v => v.toString())));
+  const current = localStatusFilter.value;
+  const options = ['<option value="">All statuses</option>', ...deduped.sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:"base"})).map(val => `<option value="${escapeHtml(val)}">${escapeHtml(val)}</option>`)];
+  localStatusFilter.innerHTML = options.join("");
+  if(deduped.includes(current)){
+    localStatusFilter.value = current;
+  } else {
+    localStatusFilter.value = "";
+    tableState.status = "";
+  }
+}
+function syncStatusFilterOptions(){
+  if(!localStatusFilter) return;
+  const rows = Array.from(localBody.querySelectorAll("tr"));
+  const statuses = new Set();
+  rows.forEach(row => {
+    const obj = rowToObj(row);
+    if(obj.status) statuses.add(obj.status);
+  });
+  updateStatusFilterOptions(Array.from(statuses));
+}
+function refreshLocalView(opts){
+  opts = opts || {};
+  if(opts.resetPage){ tableState.page = 1; }
+  if(opts.search !== undefined){ tableState.search = opts.search; }
+  if(opts.status !== undefined){ tableState.status = opts.status; }
+  if(opts.pageSize !== undefined){ tableState.pageSize = opts.pageSize; }
+  if(opts.sortBy !== undefined && SORTABLE_COLS.has(opts.sortBy)){
+    if(tableState.sortBy !== opts.sortBy){
+      tableState.sortBy = opts.sortBy;
+    }
+  }
+  if(opts.sortDir !== undefined){
+    tableState.sortDir = opts.sortDir === "desc" ? "desc" : "asc";
+  }
+  if(opts.page !== undefined){
+    tableState.page = Math.max(1, Number(opts.page) || 1);
+  }
+  const rows = Array.from(localBody.querySelectorAll("tr"));
+  syncStatusFilterOptions();
+  const searchTerm = normalizeSearchValue(tableState.search).trim();
+  const statusFilterValue = tableState.status;
+  const filtered = [];
+  rows.forEach(row => {
+    const data = rowToObj(row);
+    const values = Object.values(data).map(v => normalizeSearchValue(v));
+    const matchesSearch = searchTerm ? values.some(val => val.includes(searchTerm)) : true;
+    const matchesStatus = statusFilterValue ? normalizeSearchValue(data.status) === normalizeSearchValue(statusFilterValue) : true;
+    if(matchesSearch && matchesStatus){
+      filtered.push({ row, data });
+    } else {
+      row.style.display = "none";
+    }
+  });
+  const sortKey = SORTABLE_COLS.has(tableState.sortBy) ? tableState.sortBy : "id";
+  filtered.sort((a,b)=>{
+    const cmp = compareValues(a.data, b.data, sortKey);
+    return tableState.sortDir === "desc" ? -cmp : cmp;
+  });
+  filtered.forEach(item => localBody.appendChild(item.row));
+  const totalRows = rows.length;
+  const totalFiltered = filtered.length;
+  const pageSizeRaw = tableState.pageSize;
+  const pageSize = pageSizeRaw === "all" ? 0 : Math.max(1, Number(pageSizeRaw) || 25);
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(totalFiltered / pageSize));
+  tableState.page = Math.min(Math.max(1, tableState.page), totalPages);
+  const startIndex = pageSize === 0 ? 0 : (tableState.page - 1) * pageSize;
+  const endIndex = pageSize === 0 ? totalFiltered : Math.min(startIndex + pageSize, totalFiltered);
+  filtered.forEach((item, idx)=>{
+    const visible = pageSize === 0 || (idx >= startIndex && idx < endIndex);
+    item.row.style.display = visible ? "" : "none";
+  });
+  if(localFilterStatus){
+    if(totalFiltered === 0){
+      localFilterStatus.textContent = totalRows === 0
+        ? "No rows in the working set yet."
+        : "No rows match your current filters.";
+    } else {
+      const displayStart = pageSize === 0 ? 1 : startIndex + 1;
+      const displayEnd = pageSize === 0 ? totalFiltered : endIndex;
+      const info = `${displayStart}–${displayEnd} of ${totalFiltered} matching row${totalFiltered===1?"":"s"} (${totalRows} total)`;
+      localFilterStatus.textContent = info;
+    }
+  }
+  const prevDisabled = tableState.page <= 1;
+  const nextDisabled = tableState.page >= totalPages;
+  if(localPrevPage){ localPrevPage.disabled = prevDisabled; }
+  if(localNextPage){ localNextPage.disabled = nextDisabled; }
+  if(localPaginationInfo){
+    if(totalFiltered === 0){
+      localPaginationInfo.textContent = "";
+    } else if(pageSize === 0){
+      localPaginationInfo.textContent = `Showing all ${totalFiltered} row${totalFiltered===1?"":"s"}.`;
+    } else {
+      localPaginationInfo.textContent = `Page ${tableState.page} of ${totalPages}`;
+    }
+  }
+  if(localPaginationBar){
+    const hidePagination = totalFiltered <= (pageSize === 0 ? Infinity : pageSize);
+    localPaginationBar.classList.toggle("vis-hide", hidePagination);
+  }
+  updateSortIndicators();
+}
+function deleteSelected(){
+  $$(".selRow:checked").forEach(cb => cb.closest("tr").remove());
+  queueTableRefresh();
+  saveLocalToIDB().then(()=>{ showSavedToast(); });
+}
+function clearAll(){
+  localBody.innerHTML = "";
+  queueTableRefresh({ resetPage:true });
+  saveLocalToIDB().then(()=>{ showSavedToast(); });
+}
 selAll.addEventListener("change", e => { $$(".selRow").forEach(cb => cb.checked = selAll.checked); });
 
 // ======= Status options =======
@@ -582,6 +1208,8 @@ function populateStatusSelect(arr){
   for(const s of arr){ const opt = document.createElement("option"); opt.value = s; opt.textContent = s; sel.appendChild(opt); }
   // fallback modal select
   const fbSel = $("#fb_status"); if(fbSel){ fbSel.innerHTML = blank.outerHTML + arr.map(s => `<option>${s}</option>`).join(""); }
+  updateStatusFilterOptions(arr);
+  queueTableRefresh();
 }
 
 // ======= Official snapshot =======
@@ -784,6 +1412,164 @@ const fb_status_custom = document.getElementById('fb_status_custom');
 const fb_meta = document.getElementById('fb_meta');
 const fb_cancel = document.getElementById('fb_cancel');
 const fb_confirm = document.getElementById('fb_confirm');
+const localSearchInput = document.getElementById('localSearch');
+const localStatusFilter = document.getElementById('localStatusFilter');
+const localPageSizeSelect = document.getElementById('localPageSize');
+const localFilterStatus = document.getElementById('localFilterStatus');
+const localPaginationInfo = document.getElementById('localPaginationInfo');
+const localPaginationBar = document.getElementById('localPaginationBar');
+const localPrevPage = document.getElementById('localPrevPage');
+const localNextPage = document.getElementById('localNextPage');
+const notesModalEl = document.getElementById('notesModal');
+const notesTitleEl = document.getElementById('notesTitle');
+const notesListEl = document.getElementById('notesList');
+const notesMetaEl = document.getElementById('notesMetaJson');
+const noteModalEl = document.getElementById('noteModal');
+const noteModalTitle = document.getElementById('noteModalTitle');
+const noteTextEl = document.getElementById('noteText');
+const noteModalSaveBtn = document.getElementById('noteModalSave');
+const metaModalEl = document.getElementById('metaModal');
+const metaModalTitle = document.getElementById('metaModalTitle');
+const metaModalText = document.getElementById('metaModalText');
+const metaModalSaveBtn = document.getElementById('metaModalSave');
+const notesFallbackEl = document.getElementById('notesFallback');
+const notesFallbackTitle = document.getElementById('notesFallbackTitle');
+const notesFallbackContent = document.getElementById('notesFallbackContent');
+const notesFallbackClose = document.getElementById('notesFallbackClose');
+const noteFallbackEl = document.getElementById('noteFallback');
+const noteFallbackTitle = document.getElementById('noteFallbackTitle');
+const noteFallbackText = document.getElementById('noteFallbackText');
+const noteFallbackCancel = document.getElementById('noteFallbackCancel');
+const noteFallbackSave = document.getElementById('noteFallbackSave');
+const metaFallbackEl = document.getElementById('metaFallback');
+const metaFallbackTitle = document.getElementById('metaFallbackTitle');
+const metaFallbackText = document.getElementById('metaFallbackText');
+const metaFallbackCancel = document.getElementById('metaFallbackCancel');
+const metaFallbackSave = document.getElementById('metaFallbackSave');
+
+if(noteModalSaveBtn && noteModalEl){
+  noteModalSaveBtn.addEventListener("click", ()=>{
+    if(commitNote(noteTextEl.value)){
+      if(window.bootstrap){
+        const inst = bootstrap.Modal.getInstance(noteModalEl);
+        inst?.hide();
+      }
+      if(noteTextEl) noteTextEl.value = "";
+    }
+  });
+  noteModalEl.addEventListener("shown.bs.modal", ()=> noteTextEl?.focus());
+  noteModalEl.addEventListener("hidden.bs.modal", ()=>{
+    currentNoteRow = null;
+    if(noteTextEl) noteTextEl.value = "";
+  });
+}
+if(metaModalSaveBtn && metaModalEl){
+  metaModalSaveBtn.addEventListener("click", ()=>{
+    if(commitMetaValue(metaModalText.value)){
+      if(window.bootstrap){
+        const inst = bootstrap.Modal.getInstance(metaModalEl);
+        inst?.hide();
+      }
+      if(metaModalText) metaModalText.value = "";
+    }
+  });
+  metaModalEl.addEventListener("shown.bs.modal", ()=> metaModalText?.focus());
+  metaModalEl.addEventListener("hidden.bs.modal", ()=>{
+    currentMetaRow = null;
+    if(metaModalText) metaModalText.value = "";
+  });
+}
+if(noteFallbackCancel && noteFallbackEl){
+  noteFallbackCancel.addEventListener("click", ()=>{
+    noteFallbackEl.classList.remove('show');
+    currentNoteRow = null;
+    if(noteFallbackText) noteFallbackText.value = "";
+  });
+}
+if(noteFallbackSave && noteFallbackEl){
+  noteFallbackSave.addEventListener("click", ()=>{
+    if(commitNote(noteFallbackText.value)){
+      noteFallbackEl.classList.remove('show');
+      currentNoteRow = null;
+      if(noteFallbackText) noteFallbackText.value = "";
+    }
+  });
+}
+if(noteFallbackEl){
+  noteFallbackEl.addEventListener("click", ev => {
+    if(ev.target === noteFallbackEl){
+      noteFallbackEl.classList.remove('show');
+      currentNoteRow = null;
+      if(noteFallbackText) noteFallbackText.value = "";
+    }
+  });
+}
+if(metaFallbackCancel && metaFallbackEl){
+  metaFallbackCancel.addEventListener("click", ()=>{
+    metaFallbackEl.classList.remove('show');
+    currentMetaRow = null;
+    if(metaFallbackText) metaFallbackText.value = "";
+  });
+}
+if(metaFallbackSave && metaFallbackEl){
+  metaFallbackSave.addEventListener("click", ()=>{
+    if(commitMetaValue(metaFallbackText.value)){
+      metaFallbackEl.classList.remove('show');
+      currentMetaRow = null;
+      if(metaFallbackText) metaFallbackText.value = "";
+    }
+  });
+}
+if(metaFallbackEl){
+  metaFallbackEl.addEventListener("click", ev => {
+    if(ev.target === metaFallbackEl){
+      metaFallbackEl.classList.remove('show');
+      currentMetaRow = null;
+      if(metaFallbackText) metaFallbackText.value = "";
+    }
+  });
+}
+if(notesFallbackClose && notesFallbackEl){
+  notesFallbackClose.addEventListener("click", ()=> notesFallbackEl.classList.remove('show'));
+}
+if(notesFallbackEl){
+  notesFallbackEl.addEventListener("click", ev => {
+    if(ev.target === notesFallbackEl){
+      notesFallbackEl.classList.remove('show');
+    }
+  });
+}
+if(localSearchInput){
+  const onSearchChange = debounce(value => queueTableRefresh({ search:value, resetPage:true }), 180);
+  localSearchInput.addEventListener("input", e => onSearchChange(e.target.value));
+}
+if(localStatusFilter){
+  localStatusFilter.addEventListener("change", e => queueTableRefresh({ status:e.target.value, resetPage:true }));
+}
+if(localPageSizeSelect){
+  localPageSizeSelect.addEventListener("change", e => queueTableRefresh({ pageSize:e.target.value, resetPage:true }));
+}
+if(localPrevPage){
+  localPrevPage.addEventListener("click", ()=>{
+    queueTableRefresh({ page: tableState.page - 1 });
+  });
+}
+if(localNextPage){
+  localNextPage.addEventListener("click", ()=>{
+    queueTableRefresh({ page: tableState.page + 1 });
+  });
+}
+document.querySelectorAll('#localTable thead th[data-sort]').forEach(th => {
+  th.addEventListener("click", ()=>{
+    const key = th.dataset.sort;
+    if(!key) return;
+    let dir = "asc";
+    if(tableState.sortBy === key){
+      dir = tableState.sortDir === "asc" ? "desc" : "asc";
+    }
+    queueTableRefresh({ sortBy:key, sortDir:dir });
+  });
+});
 
 openAdd.addEventListener("click", async ()=>{
   const arr = (await idbGet(IDB_KEY_STATUS)) || [];
