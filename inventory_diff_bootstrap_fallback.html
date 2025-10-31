@@ -50,7 +50,8 @@
   #localTable { font-size: clamp(.78rem, .74rem + .25vw, .95rem); }
   #localTable th { font-size: clamp(.7rem, .66rem + .22vw, .85rem); }
   #localTable td { line-height: 1.35; }
-  .sortable { cursor:pointer; user-select:none; }
+  #viewAssetModal td { white-space: pre-wrap; }
+.sortable { cursor:pointer; user-select:none; }
   .sortable .sort-indicator { margin-left:.25rem; font-size:.75rem; color:#94a3b8; }
   .sortable.sorted .sort-indicator { color:#0d6efd; }
   #localTable td { word-break: break-word; }
@@ -109,7 +110,7 @@
         <li class="nav-item"><a class="nav-link" href="#diff">Change Log</a></li>
         <li class="nav-item"><a class="nav-link" href="#statuses">Settings</a></li>
       </ul>
-      <span class="navbar-text small text-secondary">IndexedDB autosave</span>
+      
     </div>
   </div>
 </nav>
@@ -176,7 +177,7 @@
                     <th class="sortable" data-sort="assigned_to"><span>Assigned To</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="status"><span>Status</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable d-none" data-sort="meta"><span>Meta</span><span class="sort-indicator" aria-hidden="true"></span></th>
-                    <th class="text-center text-nowrap">Details</th>
+                    <th class="text-center text-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="localBody"></tbody>
@@ -485,6 +486,27 @@
   </div>
 </div>
 
+
+
+<!-- View Asset Modal -->
+<div class="modal fade" id="viewAssetModal" tabindex="-1" aria-labelledby="viewAssetModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="viewAssetModalTitle">Asset Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-sm table-striped">
+          <tbody id="viewAssetDetails"></tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- Notes fallback (if Bootstrap JS unavailable) -->
 <div id="notesFallback" class="modal-fb" aria-hidden="true">
   <div class="panel">
@@ -707,6 +729,9 @@ function setStatus(id, message, variant="info"){
 
 // ======= Local Working Set =======
 const localCols = ["id","serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
+const VIEW_FIELDS = [
+  "id","serial_number","asset_tag","status","type","model","device_name","assigned_to","assigned_to_location","asset_location","room","description","managed_by","created_by","created_date","modified_by","modified_date","survey_number","disposal_reason","meta"
+];
 const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
 let pendingRefreshOpts = {};
 let refreshTimeout = null;
@@ -856,9 +881,17 @@ function createSeedRows(count=100){
   return rows;
 }
 const localBody = $("#localBody"); const selAll = $("#selAll");
+const viewModalEl = document.getElementById("viewAssetModal");
+const viewModalTitle = document.getElementById("viewAssetModalTitle");
+const viewModalDetails = document.getElementById("viewAssetDetails");
+let viewModalInstance = null;
+if(viewModalEl && window.bootstrap){
+  viewModalInstance = new bootstrap.Modal(viewModalEl);
+}
 function rowToObj(tr){ const tds = Array.from(tr.querySelectorAll("td[data-k]")); const obj = {}; tds.forEach(td => obj[td.dataset.k] = td.textContent.trim()); return obj; }
 function objToRow(obj){
   const tr = document.createElement("tr");
+  if(obj && obj.id !== undefined) tr.dataset.id = obj.id;
   const tdSel = document.createElement("td"); tdSel.innerHTML = '<input class="form-check-input selRow" type="checkbox">'; tr.appendChild(tdSel);
   for(const k of localCols){
     const td = document.createElement("td");
@@ -868,32 +901,24 @@ function objToRow(obj){
     td.textContent = value;
     tr.appendChild(td);
   }
-  const tdNote = document.createElement("td");
-  tdNote.className = "text-center note-actions";
-  const metaBtn = document.createElement("button");
-  metaBtn.type = "button";
-  metaBtn.className = "btn btn-sm btn-outline-secondary view-meta-btn";
-  metaBtn.textContent = "Meta";
-  metaBtn.addEventListener("click", ()=> handleViewMeta(tr));
-  tdNote.appendChild(metaBtn);
-  const noteBtn = document.createElement("button");
-  noteBtn.type = "button";
-  noteBtn.className = "btn btn-sm btn-outline-primary ms-1 add-note-btn";
-  noteBtn.textContent = "Add Note";
-  noteBtn.addEventListener("click", ()=> handleAddNote(tr));
-  tdNote.appendChild(noteBtn);
-  const viewBtn = document.createElement("button");
-  viewBtn.type = "button";
-  viewBtn.className = "btn btn-sm btn-outline-secondary ms-1 view-note-btn";
-  viewBtn.textContent = "Notes";
-  viewBtn.addEventListener("click", ()=> handleViewNotes(tr));
-  tdNote.appendChild(viewBtn);
-  tr.appendChild(tdNote);
+  const tdActions = document.createElement("td");
+  tdActions.className = "text-center text-nowrap";
+  const viewLink = document.createElement("a");
+  viewLink.href = "#";
+  viewLink.textContent = "View";
+  viewLink.addEventListener("click", ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const id = tr.dataset.id || '';
+    const stored = id ? localData.find(a => (a.id || '').toString() === id.toString()) : null;
+    const payload = stored ? { ...stored } : rowToObj(tr);
+    openViewAsset(payload);
+  });
+  tdActions.appendChild(viewLink);
+  tr.appendChild(tdActions);
   const scheduleSave = debounce(async ()=>{ await saveLocalToIDB(); showSavedToast(); }, 400);
   const scheduleRefresh = debounce(()=> queueTableRefresh(), 120);
   tr.addEventListener("input", ()=>{
-    updateNoteButtonState(tr);
-    updateMetaButtonState(tr);
     scheduleSave();
   });
   tr.addEventListener("focusout", ()=>{
@@ -903,8 +928,6 @@ function objToRow(obj){
       scheduleRefresh();
     }, 0);
   });
-  updateNoteButtonState(tr);
-  updateMetaButtonState(tr);
   return tr;
 }
 function renderLocal(rows){
@@ -957,6 +980,63 @@ function toNoteArray(notes){
     }
   }
   return out.filter(item => (item.note ?? "").toString().trim() !== "" || item.date !== undefined);
+}
+function fieldLabel(key){
+  return key.split('_').map(part => part ? part[0].toUpperCase() + part.slice(1) : '').join(' ').replace(/Id/g, 'ID');
+}
+function formatValueForView(key, value){
+  if(value === undefined || value === null) return '';
+  if(key === 'meta'){
+    if(typeof value === 'string'){
+      try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+    }
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+  return String(value);
+}
+function openViewAsset(data){
+  if(!data) return;
+  if(!viewModalEl || !viewModalDetails){
+    alert(JSON.stringify(data, null, 2));
+    return;
+  }
+  const id = (data.id || '').toString().trim();
+  const stored = id ? localData.find(a => (a.id || '').toString().trim() === id) : null;
+  const record = stored ? { ...stored } : { ...data };
+  viewModalDetails.innerHTML = '';
+  for(const key of VIEW_FIELDS){
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.scope = 'row';
+    th.textContent = fieldLabel(key);
+    const td = document.createElement('td');
+    td.textContent = formatValueForView(key, record[key]);
+    tr.appendChild(th);
+    tr.appendChild(td);
+    viewModalDetails.appendChild(tr);
+  }
+  if(viewModalTitle){
+    viewModalTitle.textContent = record.id ? `Asset – ${record.id}` : 'Asset Details';
+  }
+  if(viewModalInstance){
+    viewModalInstance.show();
+  } else {
+    viewModalEl.classList.add('show');
+    viewModalEl.style.display = 'block';
+  }
+}
+if(viewModalEl && !viewModalInstance){
+  const closeButton = viewModalEl.querySelector('[data-bs-dismiss="modal"]');
+  closeButton?.addEventListener('click', ()=>{
+    viewModalEl.classList.remove('show');
+    viewModalEl.style.display = 'none';
+  });
+  viewModalEl.addEventListener('click', ev => {
+    if(ev.target === viewModalEl){
+      viewModalEl.classList.remove('show');
+      viewModalEl.style.display = 'none';
+    }
+  });
 }
 function formatNoteTimestamp(value){
   if(value === undefined || value === null || value === ""){
