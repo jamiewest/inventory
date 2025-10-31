@@ -729,8 +729,27 @@ function setStatus(id, message, variant="info"){
 
 // ======= Local Working Set =======
 const localCols = ["id","serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
-const VIEW_FIELDS = [
-  "id","serial_number","asset_tag","status","type","model","device_name","assigned_to","assigned_to_location","asset_location","room","description","managed_by","created_by","created_date","modified_by","modified_date","survey_number","disposal_reason","meta"
+const VIEW_MODAL_FIELDS = [
+  { label: "ID", aliases: ["id", "ID", "AssetID", "AssetTag", "SerialNumber"] },
+  { label: "Name", aliases: ["name", "Name"] },
+  { label: "Serial Number", aliases: ["serial_number", "SerialNumber"] },
+  { label: "Asset Tag", aliases: ["asset_tag", "AssetTag"] },
+  { label: "Status", aliases: ["status", "Status"] },
+  { label: "Type", aliases: ["type", "Type"] },
+  { label: "Model", aliases: ["model", "Model"] },
+  { label: "Device Name", aliases: ["device_name", "DeviceName"] },
+  { label: "Assigned To", aliases: ["assigned_to", "AssignedTo"] },
+  { label: "Assigned Location", aliases: ["assigned_to_location", "AssignedToLocation"] },
+  { label: "Asset Location", aliases: ["asset_location", "AssetLocation", "Location"] },
+  { label: "Cubicle / Office / Room", aliases: ["room", "Cubicle/Office/Room", "Cubicle", "Office", "Room"] },
+  { label: "Description", aliases: ["description", "Description"] },
+  { label: "Managed By", aliases: ["managed_by", "ManagedBy"] },
+  { label: "Created By", aliases: ["created_by", "CreatedBy"] },
+  { label: "Created Date", aliases: ["created_date", "CreatedDate"] },
+  { label: "Modified By", aliases: ["modified_by", "ModifiedBy"] },
+  { label: "Modified Date", aliases: ["modified_date", "ModifiedDate"] },
+  { label: "Survey Number", aliases: ["survey_number", "SurveyNumber"] },
+  { label: "Disposal Reason", aliases: ["disposal_reason", "DisposalReason"] }
 ];
 const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
 let pendingRefreshOpts = {};
@@ -909,10 +928,7 @@ function objToRow(obj){
   viewLink.addEventListener("click", ev => {
     ev.preventDefault();
     ev.stopPropagation();
-    const id = tr.dataset.id || '';
-    const stored = id ? localData.find(a => (a.id || '').toString() === id.toString()) : null;
-    const payload = stored ? { ...stored } : rowToObj(tr);
-    openViewAsset(payload);
+    openViewAsset(tr);
   });
   tdActions.appendChild(viewLink);
   tr.appendChild(tdActions);
@@ -984,33 +1000,60 @@ function toNoteArray(notes){
 function fieldLabel(key){
   return key.split('_').map(part => part ? part[0].toUpperCase() + part.slice(1) : '').join(' ').replace(/Id/g, 'ID');
 }
-function formatValueForView(key, value){
+function normalizeViewValue(value){
   if(value === undefined || value === null) return '';
-  if(key === 'meta'){
-    if(typeof value === 'string'){
-      try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+  if(typeof value === 'number'){
+    const date = new Date(value);
+    if(!Number.isNaN(date.getTime())){
+      return date.toLocaleString();
     }
-    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
   }
-  return String(value);
+  return String(value ?? '');
 }
-function openViewAsset(data){
-  if(!data) return;
+function formatMetaForView(metaString){
+  if(!metaString) return '';
+  try {
+    const parsed = typeof metaString === 'string' ? JSON.parse(metaString) : metaString;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return String(metaString);
+  }
+}
+function openViewAsset(row){
+  if(!row) return;
   if(!viewModalEl || !viewModalDetails){
-    alert(JSON.stringify(data, null, 2));
+    alert('Asset details modal is unavailable in this environment.');
     return;
   }
-  const id = (data.id || '').toString().trim();
-  const stored = id ? localData.find(a => (a.id || '').toString().trim() === id) : null;
-  const record = stored ? { ...stored } : { ...data };
+  const base = rowToObj(row);
+  const extras = parseMeta(base.meta);
+  const record = { ...extras, ...base };
   viewModalDetails.innerHTML = '';
-  for(const key of VIEW_FIELDS){
+  VIEW_MODAL_FIELDS.forEach(field => {
+    const value = field.aliases
+      .map(alias => record[alias])
+      .find(v => v !== undefined && v !== null && String(v).trim() !== '');
     const tr = document.createElement('tr');
     const th = document.createElement('th');
     th.scope = 'row';
-    th.textContent = fieldLabel(key);
+    th.textContent = field.label;
     const td = document.createElement('td');
-    td.textContent = formatValueForView(key, record[key]);
+    td.textContent = normalizeViewValue(value ?? '');
+    tr.appendChild(th);
+    tr.appendChild(td);
+    viewModalDetails.appendChild(tr);
+  });
+  const metaValue = base.meta && base.meta.trim() ? formatMetaForView(base.meta.trim()) : '';
+  if(metaValue){
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.scope = 'row';
+    th.textContent = 'Meta';
+    const td = document.createElement('td');
+    const pre = document.createElement('pre');
+    pre.className = 'mb-0';
+    pre.textContent = metaValue;
+    td.appendChild(pre);
     tr.appendChild(th);
     tr.appendChild(td);
     viewModalDetails.appendChild(tr);
