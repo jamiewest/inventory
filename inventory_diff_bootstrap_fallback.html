@@ -92,6 +92,8 @@
   .fallback .header-actions .btn { flex:1 0 calc(50% - .25rem); }
   .fallback .note-actions { white-space:normal; display:flex; flex-direction:column; gap:.25rem; }
   .fallback .note-actions .btn { width:100%; }
+  .fallback .d-none { display:none !important; }
+  #viewAssetFormWrap { margin-top:1rem; }
   .fallback .sortable { cursor:pointer; }
   .fallback .sortable .sort-indicator { color:#6b7280; }
   .fallback .sortable.sorted .sort-indicator { color:#0d6efd; }
@@ -497,12 +499,66 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <table class="table table-sm table-striped">
-          <tbody id="viewAssetDetails"></tbody>
-        </table>
+        <div id="viewAssetReadOnly">
+          <table class="table table-sm table-striped mb-0">
+            <tbody id="viewAssetDetails"></tbody>
+          </table>
+        </div>
+        <div id="viewAssetFormWrap" class="d-none">
+          <form id="viewAssetForm" autocomplete="off" novalidate>
+            <p class="small text-secondary mb-2">Edit mode is active. Update the fields below and select “Save changes”.</p>
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <label for="view_edit_id" class="form-label">ID *</label>
+                <input id="view_edit_id" class="form-control" type="text" required/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_serial_number" class="form-label">Serial Number</label>
+                <input id="view_edit_serial_number" class="form-control" type="text"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_asset_tag" class="form-label">Asset Tag</label>
+                <input id="view_edit_asset_tag" class="form-control" type="text"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_type" class="form-label">Type</label>
+                <input id="view_edit_type" class="form-control" type="text"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_model" class="form-label">Model</label>
+                <input id="view_edit_model" class="form-control" type="text"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_room" class="form-label">Cubicle / Office / Room</label>
+                <input id="view_edit_room" class="form-control" type="text"/>
+              </div>
+              <div class="col-12 col-md-6">
+                <label for="view_edit_assigned_to" class="form-label">Assigned To</label>
+                <input id="view_edit_assigned_to" class="form-control" type="text"/>
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="view_edit_status">Status</label>
+                <div class="input-group">
+                  <select id="view_edit_status" class="form-select"></select>
+                  <input id="view_edit_status_custom" class="form-control" type="text" placeholder="or type custom…"/>
+                </div>
+                <div class="text-secondary small">Choose from the list or type your own.</div>
+              </div>
+              <div class="col-12">
+                <label for="view_edit_meta" class="form-label">Meta (JSON or text)</label>
+                <textarea id="view_edit_meta" class="form-control" rows="3" placeholder='e.g. {"color":"black","cost":999}'></textarea>
+              </div>
+            </div>
+          </form>
+        </div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer justify-content-between align-items-center flex-wrap gap-2">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-outline-secondary d-none" id="viewAssetCancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary d-none" id="viewAssetSave" form="viewAssetForm">Save changes</button>
+          <button type="button" class="btn btn-outline-dark" id="viewAssetEdit">Enter edit mode</button>
+        </div>
       </div>
     </div>
   </div>
@@ -903,7 +959,27 @@ const localBody = $("#localBody"); const selAll = $("#selAll");
 const viewModalEl = document.getElementById("viewAssetModal");
 const viewModalTitle = document.getElementById("viewAssetModalTitle");
 const viewModalDetails = document.getElementById("viewAssetDetails");
+const viewModalReadOnly = document.getElementById("viewAssetReadOnly");
+const viewModalFormWrap = document.getElementById("viewAssetFormWrap");
+const viewModalForm = document.getElementById("viewAssetForm");
+const viewModalEditBtn = document.getElementById("viewAssetEdit");
+const viewModalCancelBtn = document.getElementById("viewAssetCancelEdit");
+const viewModalSaveBtn = document.getElementById("viewAssetSave");
+const viewModalStatusSelect = document.getElementById("view_edit_status");
+const viewModalStatusCustom = document.getElementById("view_edit_status_custom");
+const viewFormInputs = {
+  id: document.getElementById("view_edit_id"),
+  serial_number: document.getElementById("view_edit_serial_number"),
+  asset_tag: document.getElementById("view_edit_asset_tag"),
+  type: document.getElementById("view_edit_type"),
+  model: document.getElementById("view_edit_model"),
+  room: document.getElementById("view_edit_room"),
+  assigned_to: document.getElementById("view_edit_assigned_to"),
+  meta: document.getElementById("view_edit_meta")
+};
 let viewModalInstance = null;
+let currentViewRow = null;
+let viewEditModeActive = false;
 if(viewModalEl && window.bootstrap){
   viewModalInstance = new bootstrap.Modal(viewModalEl);
 }
@@ -914,7 +990,6 @@ function objToRow(obj){
   const tdSel = document.createElement("td"); tdSel.innerHTML = '<input class="form-check-input selRow" type="checkbox">'; tr.appendChild(tdSel);
   for(const k of localCols){
     const td = document.createElement("td");
-    td.contentEditable = "true";
     td.dataset.k = k;
     const value = k === "meta" ? asMetaText(obj?.meta) : (obj?.[k] ?? "");
     td.textContent = value;
@@ -932,18 +1007,6 @@ function objToRow(obj){
   });
   tdActions.appendChild(viewLink);
   tr.appendChild(tdActions);
-  const scheduleSave = debounce(async ()=>{ await saveLocalToIDB(); showSavedToast(); }, 400);
-  const scheduleRefresh = debounce(()=> queueTableRefresh(), 120);
-  tr.addEventListener("input", ()=>{
-    scheduleSave();
-  });
-  tr.addEventListener("focusout", ()=>{
-    setTimeout(()=>{
-      const active = document.activeElement;
-      if(active && tr.contains(active)) return;
-      scheduleRefresh();
-    }, 0);
-  });
   return tr;
 }
 function renderLocal(rows){
@@ -1019,12 +1082,8 @@ function formatMetaForView(metaString){
     return String(metaString);
   }
 }
-function openViewAsset(row){
-  if(!row) return;
-  if(!viewModalEl || !viewModalDetails){
-    alert('Asset details modal is unavailable in this environment.');
-    return;
-  }
+function renderViewAsset(row){
+  if(!row || !viewModalDetails) return;
   const base = rowToObj(row);
   const extras = parseMeta(base.meta);
   const record = { ...extras, ...base };
@@ -1059,8 +1118,125 @@ function openViewAsset(row){
     viewModalDetails.appendChild(tr);
   }
   if(viewModalTitle){
-    viewModalTitle.textContent = record.id ? `Asset – ${record.id}` : 'Asset Details';
+    const titleId = base.id ? base.id : record.id;
+    viewModalTitle.textContent = titleId ? `Asset – ${titleId}` : 'Asset Details';
   }
+}
+function toggleViewEditMode(enabled){
+  viewEditModeActive = !!enabled;
+  if(viewModalReadOnly){
+    viewModalReadOnly.classList.toggle("d-none", viewEditModeActive);
+  }
+  if(viewModalFormWrap){
+    viewModalFormWrap.classList.toggle("d-none", !viewEditModeActive);
+  }
+  if(viewModalEditBtn){
+    viewModalEditBtn.classList.toggle("d-none", viewEditModeActive);
+  }
+  if(viewModalCancelBtn){
+    viewModalCancelBtn.classList.toggle("d-none", !viewEditModeActive);
+  }
+  if(viewModalSaveBtn){
+    viewModalSaveBtn.classList.toggle("d-none", !viewEditModeActive);
+  }
+  if(viewEditModeActive && viewFormInputs.id){
+    setTimeout(()=> viewFormInputs.id.focus(), 120);
+  }
+}
+function populateViewForm(row){
+  if(!row) return;
+  const data = rowToObj(row);
+  if(viewFormInputs.id) viewFormInputs.id.value = data.id ?? "";
+  if(viewFormInputs.serial_number) viewFormInputs.serial_number.value = data.serial_number ?? "";
+  if(viewFormInputs.asset_tag) viewFormInputs.asset_tag.value = data.asset_tag ?? "";
+  if(viewFormInputs.type) viewFormInputs.type.value = data.type ?? "";
+  if(viewFormInputs.model) viewFormInputs.model.value = data.model ?? "";
+  if(viewFormInputs.room) viewFormInputs.room.value = data.room ?? "";
+  if(viewFormInputs.assigned_to) viewFormInputs.assigned_to.value = data.assigned_to ?? "";
+  if(viewFormInputs.meta) viewFormInputs.meta.value = data.meta ?? "";
+  const statusValue = data.status ?? "";
+  if(viewModalStatusSelect){
+    let matched = false;
+    Array.from(viewModalStatusSelect.options || []).forEach(opt => {
+      if(opt.value === statusValue){
+        matched = true;
+      }
+    });
+    viewModalStatusSelect.value = matched ? statusValue : "";
+    if(viewModalStatusCustom){
+      viewModalStatusCustom.value = matched ? "" : statusValue;
+    }
+  } else if(viewModalStatusCustom){
+    viewModalStatusCustom.value = statusValue;
+  }
+}
+function getFormStatusValue(){
+  return norm(viewModalStatusSelect?.value) || norm(viewModalStatusCustom?.value);
+}
+async function applyViewFormChanges(){
+  if(!currentViewRow) return;
+  const idInput = viewFormInputs.id;
+  const idValue = norm(idInput?.value);
+  if(!idValue){
+    alert("ID is required.");
+    if(idInput) idInput.focus();
+    return;
+  }
+  const updates = {
+    id: idValue,
+    serial_number: norm(viewFormInputs.serial_number?.value),
+    asset_tag: norm(viewFormInputs.asset_tag?.value),
+    type: norm(viewFormInputs.type?.value),
+    model: norm(viewFormInputs.model?.value),
+    room: norm(viewFormInputs.room?.value),
+    assigned_to: norm(viewFormInputs.assigned_to?.value),
+    status: getFormStatusValue(),
+    meta: viewFormInputs.meta?.value?.trim() ?? ""
+  };
+  for(const key of localCols){
+    const cell = currentViewRow.querySelector(`td[data-k="${key}"]`);
+    if(!cell) continue;
+    if(key === "meta"){
+      cell.textContent = updates.meta;
+    } else if(key === "status"){
+      cell.textContent = updates.status;
+    } else {
+      cell.textContent = updates[key] ?? "";
+    }
+  }
+  currentViewRow.dataset.id = updates.id;
+  updateMetaButtonState(currentViewRow);
+  updateNoteButtonState(currentViewRow);
+  renderViewAsset(currentViewRow);
+  populateViewForm(currentViewRow);
+  queueTableRefresh();
+  if(viewModalSaveBtn) viewModalSaveBtn.disabled = true;
+  try {
+    await saveLocalToIDB();
+    showSavedToast();
+    updateLastSaved();
+    setStatus("localImportStatus", `Asset ${updates.id} updated.`, "success");
+    toggleViewEditMode(false);
+  } catch(err){
+    setStatus("localImportStatus", `Failed to save changes: ${err.message}`, "error");
+  } finally {
+    if(viewModalSaveBtn) viewModalSaveBtn.disabled = false;
+  }
+}
+function resetViewModalState(){
+  currentViewRow = null;
+  toggleViewEditMode(false);
+}
+function openViewAsset(row){
+  if(!row) return;
+  if(!viewModalEl || !viewModalDetails){
+    alert('Asset details modal is unavailable in this environment.');
+    return;
+  }
+  currentViewRow = row;
+  renderViewAsset(row);
+  populateViewForm(row);
+  toggleViewEditMode(false);
   if(viewModalInstance){
     viewModalInstance.show();
   } else {
@@ -1073,11 +1249,49 @@ if(viewModalEl && !viewModalInstance){
   closeButton?.addEventListener('click', ()=>{
     viewModalEl.classList.remove('show');
     viewModalEl.style.display = 'none';
+    resetViewModalState();
   });
   viewModalEl.addEventListener('click', ev => {
     if(ev.target === viewModalEl){
       viewModalEl.classList.remove('show');
       viewModalEl.style.display = 'none';
+      resetViewModalState();
+    }
+  });
+}
+if(viewModalEl && viewModalInstance){
+  viewModalEl.addEventListener('hidden.bs.modal', resetViewModalState);
+}
+if(viewModalEditBtn){
+  viewModalEditBtn.addEventListener("click", ()=>{
+    if(!currentViewRow) return;
+    populateViewForm(currentViewRow);
+    toggleViewEditMode(true);
+  });
+}
+if(viewModalCancelBtn){
+  viewModalCancelBtn.addEventListener("click", ()=>{
+    if(currentViewRow) populateViewForm(currentViewRow);
+    toggleViewEditMode(false);
+  });
+}
+if(viewModalForm){
+  viewModalForm.addEventListener("submit", ev => {
+    ev.preventDefault();
+    applyViewFormChanges();
+  });
+}
+if(viewModalStatusSelect){
+  viewModalStatusSelect.addEventListener("change", ()=>{
+    if(viewModalStatusCustom && viewModalStatusSelect.value){
+      viewModalStatusCustom.value = "";
+    }
+  });
+}
+if(viewModalStatusCustom){
+  viewModalStatusCustom.addEventListener("input", ()=>{
+    if(viewModalStatusSelect && viewModalStatusCustom.value.trim().length){
+      viewModalStatusSelect.value = "";
     }
   });
 }
@@ -1442,13 +1656,33 @@ $("#saveStatus").addEventListener("click", async ()=>{
   await idbSet(IDB_KEY_STATUS, arr); statusSaved.textContent = `Saved ${arr.length} item(s)`; populateStatusSelect(arr); showSavedToast();
 });
 function populateStatusSelect(arr){
-  const sel = $("#m_status"); if(!sel) return;
-  sel.innerHTML = ""; const blank = document.createElement("option"); blank.value=""; blank.textContent="(none)"; sel.appendChild(blank);
-  for(const s of arr){ const opt = document.createElement("option"); opt.value = s; opt.textContent = s; sel.appendChild(opt); }
-  // fallback modal select
-  const fbSel = $("#fb_status"); if(fbSel){ fbSel.innerHTML = blank.outerHTML + arr.map(s => `<option>${s}</option>`).join(""); }
-  updateStatusFilterOptions(arr);
+  const list = Array.isArray(arr) ? arr : [];
+  const applyOptions = (selectEl)=>{
+    if(!selectEl) return;
+    selectEl.innerHTML = "";
+    const blankOpt = document.createElement("option");
+    blankOpt.value = "";
+    blankOpt.textContent = "(none)";
+    selectEl.appendChild(blankOpt);
+    for(const s of list){
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      selectEl.appendChild(opt);
+    }
+  };
+  applyOptions(document.getElementById("m_status"));
+  applyOptions(viewModalStatusSelect);
+  const fbSel = document.getElementById("fb_status");
+  if(fbSel){
+    const options = ['<option value="">(none)</option>', ...list.map(s => `<option>${escapeHtml(s)}</option>`)];
+    fbSel.innerHTML = options.join("");
+  }
+  updateStatusFilterOptions(list);
   queueTableRefresh();
+  if(currentViewRow){
+    populateViewForm(currentViewRow);
+  }
 }
 
 // ======= Official snapshot =======
