@@ -1003,9 +1003,18 @@ function objToRow(obj){
   viewLink.addEventListener("click", ev => {
     ev.preventDefault();
     ev.stopPropagation();
-    openViewAsset(tr);
+    openViewAsset(tr, { edit: false });
   });
-  tdActions.appendChild(viewLink);
+  const separator = document.createTextNode(" | ");
+  const editLink = document.createElement("a");
+  editLink.href = "#";
+  editLink.textContent = "Edit";
+  editLink.addEventListener("click", ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    openViewAsset(tr, { edit: true });
+  });
+  tdActions.append(viewLink, separator, editLink);
   tr.appendChild(tdActions);
   return tr;
 }
@@ -1227,8 +1236,9 @@ function resetViewModalState(){
   currentViewRow = null;
   toggleViewEditMode(false);
 }
-function openViewAsset(row){
+function openViewAsset(row, options){
   if(!row) return;
+  const { edit = false } = options || {};
   if(!viewModalEl || !viewModalDetails){
     alert('Asset details modal is unavailable in this environment.');
     return;
@@ -1236,7 +1246,7 @@ function openViewAsset(row){
   currentViewRow = row;
   renderViewAsset(row);
   populateViewForm(row);
-  toggleViewEditMode(false);
+  toggleViewEditMode(!!edit);
   if(viewModalInstance){
     viewModalInstance.show();
   } else {
