@@ -100,6 +100,20 @@
     color:#9ca3af;
     font-weight:400;
   }
+  #viewAssetModal .form-control::placeholder,
+  #viewAssetModal textarea.form-control::placeholder {
+    font-size:.85em;
+    color:#9ca3af;
+    font-weight:400;
+  }
+  #viewAssetDetails .meta-preview {
+    max-height:180px;
+    overflow:auto;
+    background-color:#f8fafc;
+    border:1px solid #e2e8f0;
+    border-radius:.35rem;
+    padding:.5rem .75rem;
+  }
   #fallbackModal .input::placeholder,
   #fallbackModal textarea.input::placeholder {
     font-size:.85em;
@@ -549,12 +563,12 @@
                   <select id="view_edit_status" class="form-select"></select>
                   <input id="view_edit_status_custom" class="form-control" type="text" placeholder="or type custom…"/>
                 </div>
-                <div class="text-secondary small">Choose from the list or type your own.</div>
-              </div>
-              <div class="col-12">
-                <label for="view_edit_meta" class="form-label">Meta (JSON or text)</label>
-                <textarea id="view_edit_meta" class="form-control" rows="3" placeholder='e.g. {"color":"black","cost":999}'></textarea>
-              </div>
+              <div class="text-secondary small">Choose from the list or type your own.</div>
+            </div>
+            <div class="col-12">
+              <label for="view_edit_meta" class="form-label">Meta (JSON or text)</label>
+              <textarea id="view_edit_meta" class="form-control" rows="3" placeholder="{}"></textarea>
+            </div>
             </div>
           </form>
         </div>
@@ -831,6 +845,15 @@ function queueTableRefresh(opts){
 function normalizeFieldKey(key){
   return (key ?? "").toString().replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
+const RESERVED_META_KEYS = (() => {
+  const reserved = new Set(localCols.map(normalizeFieldKey));
+  VIEW_MODAL_FIELDS.forEach(field => {
+    (field.aliases || []).forEach(alias => reserved.add(normalizeFieldKey(alias)));
+  });
+  reserved.delete("");
+  reserved.delete(normalizeFieldKey("meta"));
+  return reserved;
+})();
 function findMatchingKey(src, alias){
   const target = normalizeFieldKey(alias);
   if(!target) return undefined;
@@ -1093,9 +1116,24 @@ function formatMetaForView(metaString){
   if(!metaString) return '';
   try {
     const parsed = typeof metaString === 'string' ? JSON.parse(metaString) : metaString;
+    if(parsed === null) return '';
+    if(Array.isArray(parsed)){
+      return parsed.length ? JSON.stringify(parsed, null, 2) : '';
+    }
+    if(typeof parsed === 'object'){
+      const filtered = {};
+      let hasData = false;
+      for(const [key, value] of Object.entries(parsed)){
+        if(RESERVED_META_KEYS.has(normalizeFieldKey(key))) continue;
+        filtered[key] = value;
+        hasData = true;
+      }
+      return hasData ? JSON.stringify(filtered, null, 2) : '';
+    }
     return JSON.stringify(parsed, null, 2);
   } catch {
-    return String(metaString);
+    const text = String(metaString ?? '').trim();
+    return text;
   }
 }
 function renderViewAsset(row){
@@ -1118,17 +1156,39 @@ function renderViewAsset(row){
     tr.appendChild(td);
     viewModalDetails.appendChild(tr);
   });
-  const metaValue = base.meta && base.meta.trim() ? formatMetaForView(base.meta.trim()) : '';
-  if(metaValue){
+  const metaValueRaw = base.meta && base.meta.trim() ? formatMetaForView(base.meta.trim()) : '';
+  if(metaValueRaw){
+    const metaPreview = metaValueRaw.length > 400 ? `${metaValueRaw.slice(0, 400).trimEnd()}…` : metaValueRaw;
     const tr = document.createElement('tr');
     const th = document.createElement('th');
     th.scope = 'row';
     th.textContent = 'Meta';
     const td = document.createElement('td');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'd-flex flex-column gap-2';
     const pre = document.createElement('pre');
-    pre.className = 'mb-0';
-    pre.textContent = metaValue;
-    td.appendChild(pre);
+    pre.className = 'mb-0 meta-preview';
+    pre.textContent = metaPreview;
+    wrapper.appendChild(pre);
+    if(metaValueRaw.length > 400){
+      const hint = document.createElement('div');
+      hint.className = 'small text-secondary';
+      hint.textContent = 'Preview truncated. Open the meta viewer to see the full JSON.';
+      wrapper.appendChild(hint);
+    }
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'btn btn-sm btn-outline-secondary align-self-start';
+    openBtn.textContent = 'Open meta viewer';
+    openBtn.addEventListener('click', ()=>{
+      if(currentViewRow){
+        handleViewMeta(currentViewRow);
+      } else {
+        handleViewMeta(row);
+      }
+    });
+    wrapper.appendChild(openBtn);
+    td.appendChild(wrapper);
     tr.appendChild(th);
     tr.appendChild(td);
     viewModalDetails.appendChild(tr);
@@ -1169,7 +1229,10 @@ function populateViewForm(row){
   if(viewFormInputs.model) viewFormInputs.model.value = data.model ?? "";
   if(viewFormInputs.room) viewFormInputs.room.value = data.room ?? "";
   if(viewFormInputs.assigned_to) viewFormInputs.assigned_to.value = data.assigned_to ?? "";
-  if(viewFormInputs.meta) viewFormInputs.meta.value = data.meta ?? "";
+  if(viewFormInputs.meta){
+    const metaText = formatMetaForView(data.meta ?? "");
+    viewFormInputs.meta.value = metaText;
+  }
   const statusValue = data.status ?? "";
   if(viewModalStatusSelect){
     let matched = false;
