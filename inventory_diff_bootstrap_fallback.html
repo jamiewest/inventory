@@ -60,12 +60,10 @@
   #localTable td.note-actions .btn { padding:.25rem .55rem; font-size:.75rem; }
   #lastSaved { white-space: nowrap; }
 
-  .columns-badge { white-space: normal; }
   .header-actions { display:flex; gap:.5rem; }
   .header-actions .btn { white-space: nowrap; }
   .card-header.flex-responsive { display:flex; align-items:center; gap:.75rem; }
   .card-header.flex-responsive .header-title { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
-  .card-header.flex-responsive .columns-badge { margin-left:.25rem; }
   .card-header.flex-responsive .header-actions { margin-left:auto; }
   @media (max-width: 992px){
     .card-header.flex-responsive { flex-direction:column; align-items:flex-start; }
@@ -75,7 +73,6 @@
     #localTable th { font-size: clamp(.66rem, .62rem + .18vw, .8rem); }
   }
   @media (max-width: 768px){
-    .card-header.flex-responsive .columns-badge { display:none; }
     #localTable { font-size: clamp(.68rem, .64rem + .18vw, .82rem); }
     #localTable th { font-size: clamp(.6rem, .56rem + .16vw, .76rem); }
   }
@@ -128,7 +125,6 @@
           <div class="card-header d-flex align-items-center flex-responsive">
             <div class="header-title">
               <h5 class="mb-0">Inventory</h5>
-              <span class="badge text-bg-secondary columns-badge">Columns: <span class="code">id</span>, <span class="code">serial_number</span>, <span class="code">asset_tag</span>, <span class="code">type</span>, <span class="code">model</span>, <span class="code">room</span>, <span class="code">assigned_to</span>, <span class="code">status</span>, <span class="code">meta</span></span>
             </div>
             <div class="header-actions">
               <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
