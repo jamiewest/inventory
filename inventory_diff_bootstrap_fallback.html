@@ -1325,17 +1325,27 @@ function openViewAsset(row, options){
   }
 }
 if(viewModalEl && !viewModalInstance){
-  const closeButton = viewModalEl.querySelector('[data-bs-dismiss="modal"]');
-  closeButton?.addEventListener('click', ()=>{
+  const hideFallbackModal = ()=>{
     viewModalEl.classList.remove('show');
     viewModalEl.style.display = 'none';
     resetViewModalState();
+  };
+  const closeButtons = viewModalEl.querySelectorAll('[data-bs-dismiss="modal"]');
+  closeButtons.forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      hideFallbackModal();
+    });
   });
   viewModalEl.addEventListener('click', ev => {
     if(ev.target === viewModalEl){
-      viewModalEl.classList.remove('show');
-      viewModalEl.style.display = 'none';
-      resetViewModalState();
+      hideFallbackModal();
+    }
+  });
+  viewModalEl.addEventListener('keydown', ev => {
+    if(ev.key === 'Escape'){
+      hideFallbackModal();
     }
   });
 }
