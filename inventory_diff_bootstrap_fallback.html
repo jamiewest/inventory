@@ -114,6 +114,14 @@
     border-radius:.35rem;
     padding:.5rem .75rem;
   }
+  #scanVideo, #scanVideoFallback {
+    width:100%;
+    max-height:360px;
+    background:#000;
+    border-radius:.5rem;
+    object-fit:cover;
+  }
+  #scanMatchPanel button { min-width:140px; }
   #fallbackModal .input::placeholder,
   #fallbackModal textarea.input::placeholder {
     font-size:.85em;
@@ -154,6 +162,7 @@
             </div>
             <div class="header-actions">
               <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
+              <button class="btn btn-outline-success btn-sm" id="openScanner">Scan barcode</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
               <button class="btn btn-outline-secondary btn-sm" id="clearAll">Clear all</button>
               <button class="btn btn-outline-primary btn-sm" id="seedSample" title="Populate with example data">Seed sample data</button>
@@ -672,6 +681,79 @@
   </div>
 </div>
 
+<!-- Barcode scanner modal -->
+<div class="modal fade" id="scanModal" tabindex="-1" aria-labelledby="scanModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="scanModalTitle">Scan Barcode</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="ratio ratio-4x3 border rounded">
+          <video id="scanVideo" autoplay playsinline muted></video>
+        </div>
+        <div class="mt-3">
+          <div id="scanStatus" class="small text-secondary" role="status" aria-live="polite">Initializing camera…</div>
+        </div>
+        <div id="scanMatchPanel" class="alert alert-info mt-3 d-none">
+          <h6 class="alert-heading mb-2">Potential match</h6>
+          <div id="scanDetected" class="fw-semibold"></div>
+          <div id="scanMatchInfo" class="small text-secondary mt-1"></div>
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            <button class="btn btn-success" id="scanConfirm">Confirm match</button>
+            <button class="btn btn-outline-secondary" id="scanIgnore">Ignore</button>
+          </div>
+        </div>
+        <div class="mt-4">
+          <label for="manualScanInput" class="form-label small">Manual lookup</label>
+          <div class="input-group">
+            <input id="manualScanInput" class="form-control" placeholder="Enter or paste serial number"/>
+            <button class="btn btn-outline-primary" id="manualScanSubmit">Find</button>
+          </div>
+          <div id="manualScanStatus" class="small text-secondary mt-2"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="scanStop">Stop scanning</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Barcode scanner fallback -->
+<div id="scanFallback" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header><strong>Scan Barcode</strong></header>
+    <div class="content">
+      <video id="scanVideoFallback" autoplay playsinline muted></video>
+      <div id="scanStatusFallback" class="small text-secondary mt-2" role="status" aria-live="polite">Initializing camera…</div>
+      <div id="scanMatchPanelFallback" class="alert alert-info mt-3 d-none">
+        <h6 class="alert-heading mb-2">Potential match</h6>
+        <div id="scanDetectedFallback" class="fw-semibold"></div>
+        <div id="scanMatchInfoFallback" class="small text-secondary mt-1"></div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn btn-success" id="scanConfirmFallback">Confirm match</button>
+          <button class="btn btn-outline-secondary" id="scanIgnoreFallback">Ignore</button>
+        </div>
+      </div>
+      <div class="mt-3">
+        <label for="manualScanInputFallback" class="form-label small">Manual lookup</label>
+        <div class="input-group">
+          <input id="manualScanInputFallback" class="input" placeholder="Enter serial number"/>
+          <button class="btn btn-outline-primary" id="manualScanSubmitFallback">Find</button>
+        </div>
+        <div id="manualScanStatusFallback" class="small text-secondary mt-2"></div>
+      </div>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="scanStopFallback">Stop scanning</button>
+      <button class="btn btn-primary" id="scanCloseFallback">Close</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Toast containers -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
@@ -689,6 +771,7 @@
 <!-- Secondary Bootstrap Bundles (disabled initially) -->
 <script id="bs-js-2" src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js" defer disabled></script>
 <script id="bs-js-3" src="https://unpkg.com/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer disabled></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.2/umd/index.min.js" defer></script>
 
 <script>
 // ===== Bootstrap load watchdog & fallbacks =====
@@ -1783,6 +1866,32 @@ function resetLocalFilters(){
   if(localSearchInput) localSearchInput.value = "";
   if(localStatusFilter) localStatusFilter.value = "";
 }
+function findRowBySerial(serialValue){
+  const normalized = (serialValue ?? "").toString().trim().toLowerCase();
+  if(!normalized) return null;
+  const rows = Array.from(localBody.querySelectorAll("tr"));
+  for(const row of rows){
+    const obj = rowToObj(row);
+    const serial = (obj.serial_number ?? "").toString().trim().toLowerCase();
+    if(serial && serial === normalized){
+      return row;
+    }
+  }
+  return null;
+}
+async function markRowVerified(row){
+  if(!row) return false;
+  const metaCell = row.querySelector('td[data-k="meta"]');
+  if(!metaCell) return false;
+  const metaObj = parseMeta(metaCell.textContent);
+  metaObj.last_verified_date = new Date().toISOString();
+  metaCell.textContent = JSON.stringify(metaObj);
+  updateMetaButtonState(row);
+  updateNoteButtonState(row);
+  await saveLocalToIDB();
+  updateLastSaved();
+  return true;
+}
 async function refreshDataStats(){
   if(!dataStatsEl) return;
   try {
@@ -1793,7 +1902,14 @@ async function refreshDataStats(){
     const rowsList = Array.isArray(rowsValue) ? rowsValue : [];
     const statusesList = Array.isArray(statusesValue) ? statusesValue : [];
     const totalBytes = estimateSize(rowsList) + estimateSize(statusesList);
-    const message = `Rows: ${rowsList.length}, Status options: ${statusesList.length}, Approx size: ${formatBytes(totalBytes)}.`;
+    let verifiedCount = 0;
+    for(const row of rowsList){
+      const metaObj = parseMeta(row?.meta);
+      if(metaObj && metaObj.last_verified_date){
+        verifiedCount++;
+      }
+    }
+    const message = `Rows: ${rowsList.length} (verified ${verifiedCount}), Status options: ${statusesList.length}, Approx size: ${formatBytes(totalBytes)}.`;
     dataStatsEl.textContent = message;
   } catch(err){
     dataStatsEl.textContent = `Unable to read storage stats (${err.message})`;
@@ -2375,6 +2491,412 @@ if(seedConfirmFallbackEl){
     }
   });
 }
+
+// ======= Barcode scanner =======
+const openScannerBtn = document.getElementById('openScanner');
+const scanModalEl = document.getElementById('scanModal');
+const scanVideo = document.getElementById('scanVideo');
+const scanMatchPanel = document.getElementById('scanMatchPanel');
+const scanDetected = document.getElementById('scanDetected');
+const scanMatchInfo = document.getElementById('scanMatchInfo');
+const scanConfirmBtn = document.getElementById('scanConfirm');
+const scanIgnoreBtn = document.getElementById('scanIgnore');
+const scanStopBtn = document.getElementById('scanStop');
+const manualScanInput = document.getElementById('manualScanInput');
+const manualScanSubmit = document.getElementById('manualScanSubmit');
+const scanFallbackEl = document.getElementById('scanFallback');
+const scanVideoFallback = document.getElementById('scanVideoFallback');
+const scanMatchPanelFallback = document.getElementById('scanMatchPanelFallback');
+const scanDetectedFallback = document.getElementById('scanDetectedFallback');
+const scanMatchInfoFallback = document.getElementById('scanMatchInfoFallback');
+const scanConfirmFallbackBtn = document.getElementById('scanConfirmFallback');
+const scanIgnoreFallbackBtn = document.getElementById('scanIgnoreFallback');
+const scanStopFallbackBtn = document.getElementById('scanStopFallback');
+const scanCloseFallbackBtn = document.getElementById('scanCloseFallback');
+const manualScanInputFallback = document.getElementById('manualScanInputFallback');
+const manualScanSubmitFallback = document.getElementById('manualScanSubmitFallback');
+
+const scanContexts = {
+  modal: {
+    statusId: "scanStatus",
+    manualStatusId: "manualScanStatus",
+    video: scanVideo,
+    matchPanel: scanMatchPanel,
+    detected: scanDetected,
+    matchInfo: scanMatchInfo,
+    confirm: scanConfirmBtn,
+    ignore: scanIgnoreBtn,
+    stop: scanStopBtn,
+    manualInput: manualScanInput,
+    manualSubmit: manualScanSubmit,
+    root: scanModalEl
+  },
+  fallback: {
+    statusId: "scanStatusFallback",
+    manualStatusId: "manualScanStatusFallback",
+    video: scanVideoFallback,
+    matchPanel: scanMatchPanelFallback,
+    detected: scanDetectedFallback,
+    matchInfo: scanMatchInfoFallback,
+    confirm: scanConfirmFallbackBtn,
+    ignore: scanIgnoreFallbackBtn,
+    stop: scanStopFallbackBtn,
+    manualInput: manualScanInputFallback,
+    manualSubmit: manualScanSubmitFallback,
+    root: scanFallbackEl
+  }
+};
+let scanCtx = null;
+let scanStream = null;
+let scanDetector = null;
+let scanActive = false;
+let scanPaused = false;
+let scanLoopTimer = null;
+let currentScanRow = null;
+let currentScanCode = "";
+let zxingReader = null;
+let zxingActive = false;
+
+function getScanCtx(useFallback){ return useFallback ? scanContexts.fallback : scanContexts.modal; }
+function setScanStatusMessage(message, variant="info"){
+  if(!scanCtx || !scanCtx.statusId) return;
+  setStatus(scanCtx.statusId, message, variant);
+}
+function setManualStatusMessage(message, variant="info"){
+  if(!scanCtx || !scanCtx.manualStatusId) return;
+  if(message === ""){
+    const el = document.getElementById(scanCtx.manualStatusId);
+    if(el) el.textContent = "";
+    return;
+  }
+  setStatus(scanCtx.manualStatusId, message, variant);
+}
+function hideScanMatchPanel(){
+  if(!scanCtx) return;
+  if(scanCtx.matchPanel){
+    scanCtx.matchPanel.classList.add('d-none');
+  }
+  if(scanCtx.confirm){
+    scanCtx.confirm.disabled = true;
+  }
+  currentScanRow = null;
+  currentScanCode = "";
+}
+function extractBarcodeValue(results){
+  if(!Array.isArray(results)) return "";
+  for(const entry of results){
+    if(!entry) continue;
+    if(entry.rawValue) return String(entry.rawValue);
+    if(entry.data) return String(entry.data);
+  }
+  return "";
+}
+function scheduleScanLoop(delay=300){
+  clearTimeout(scanLoopTimer);
+  if(zxingActive) return;
+  if(!scanActive || scanPaused || !scanDetector || !scanCtx || !scanCtx.video) return;
+  scanLoopTimer = setTimeout(async ()=>{
+    if(!scanActive || !scanDetector || !scanCtx || !scanCtx.video){
+      return;
+    }
+    if(scanPaused){
+      scheduleScanLoop(250);
+      return;
+    }
+    try {
+      const results = await scanDetector.detect(scanCtx.video);
+      const value = extractBarcodeValue(results);
+      if(value){
+        presentScanMatch(value.trim());
+        scheduleScanLoop(900);
+        return;
+      }
+    } catch(err){
+      console.warn("Barcode detection failed", err);
+      setScanStatusMessage(`Scanning error: ${err.message}`, "error");
+      scheduleScanLoop(800);
+      return;
+    }
+    scheduleScanLoop(200);
+  }, delay);
+}
+function presentScanMatch(code){
+  if(!scanCtx) return;
+  const normalized = code.trim();
+  if(!normalized){
+    scheduleScanLoop(200);
+    return;
+  }
+  currentScanCode = normalized;
+  currentScanRow = findRowBySerial(normalized);
+  if(scanCtx.matchPanel){
+    scanCtx.matchPanel.classList.remove('d-none');
+  }
+  if(scanCtx.detected){
+    scanCtx.detected.textContent = `Serial: ${normalized}`;
+  }
+  if(currentScanRow){
+    const obj = rowToObj(currentScanRow);
+    const idText = obj.id ? `Asset ${obj.id}` : "Matched asset";
+    const detail = obj.model ? `${obj.model}` : (obj.type || "");
+    const location = obj.assigned_to ? `Assigned to ${obj.assigned_to}` : "";
+    const infoParts = [idText, detail, location].filter(Boolean);
+    if(scanCtx.matchInfo){
+      scanCtx.matchInfo.textContent = infoParts.join(" • ") || "Matched asset.";
+    }
+    if(scanCtx.confirm){
+      scanCtx.confirm.disabled = false;
+    }
+    setScanStatusMessage("Match found. Confirm to record verification or ignore to continue scanning.", "success");
+    setManualStatusMessage("", "info");
+  } else {
+    if(scanCtx.matchInfo){
+      scanCtx.matchInfo.textContent = "No asset matches this serial number. Use manual lookup or ignore.";
+    }
+    if(scanCtx.confirm){
+      scanCtx.confirm.disabled = true;
+    }
+    setScanStatusMessage("No matching asset found. Use manual lookup or ignore.", "error");
+    setManualStatusMessage("", "info");
+  }
+  scanPaused = true;
+}
+async function startScanner(useFallback){
+  stopScanner();
+  scanCtx = getScanCtx(useFallback);
+  if(!scanCtx){
+    setStatus("localImportStatus", "Scanner UI unavailable on this device.", "error");
+    return;
+  }
+  hideScanMatchPanel();
+  setManualStatusMessage("", "info");
+  if(scanCtx.video){
+    scanCtx.video.srcObject = null;
+  }
+  if(!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia){
+    setScanStatusMessage("Camera access is not supported on this device. Use manual lookup.", "error");
+    scanActive = false;
+    scanPaused = true;
+    return;
+  }
+  try {
+    setScanStatusMessage("Requesting camera…", "info");
+    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+    if(scanCtx.video){
+      scanCtx.video.srcObject = scanStream;
+      await scanCtx.video.play().catch(()=>{});
+    }
+    scanActive = true;
+    scanPaused = false;
+    if('BarcodeDetector' in window){
+      if(!scanDetector){
+        try {
+          scanDetector = new window.BarcodeDetector({ formats: ["code_128","code_39","ean_13","ean_8","upc_a","upc_e","qr_code"] });
+        } catch(err){
+          console.warn("BarcodeDetector init failed", err);
+          scanDetector = null;
+        }
+      }
+      if(scanDetector){
+        setScanStatusMessage("Point the camera at a barcode. Hold steady to detect.", "info");
+        scheduleScanLoop(350);
+      } else {
+        setScanStatusMessage("Barcode detection unavailable. Falling back to ZXing…", "info");
+        startZXingLoop();
+      }
+    } else {
+      setScanStatusMessage("Using ZXing fallback decoder.", "info");
+      startZXingLoop();
+    }
+  } catch(err){
+    console.error("Camera initialization failed", err);
+    setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
+    scanActive = false;
+    scanPaused = true;
+    if(scanStream){
+      scanStream.getTracks().forEach(track => track.stop());
+      scanStream = null;
+    }
+  }
+}
+function stopScanner(){
+  clearTimeout(scanLoopTimer);
+  scanLoopTimer = null;
+  scanActive = false;
+  scanPaused = false;
+  if(scanStream){
+    scanStream.getTracks().forEach(track => track.stop());
+    scanStream = null;
+  }
+  if(zxingReader){
+    try { zxingReader.reset(); } catch {}
+  }
+  zxingActive = false;
+  if(scanCtx?.video){
+    scanCtx.video.srcObject = null;
+  }
+  hideScanMatchPanel();
+  scanCtx = null;
+}
+function startZXingLoop(){
+  if(!scanCtx || !scanCtx.video){
+    setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
+    return;
+  }
+  if(!window.ZXing || !window.ZXing.BrowserMultiFormatReader){
+    setScanStatusMessage("ZXing library not available. Use manual lookup.", "error");
+    return;
+  }
+  try {
+    if(zxingReader){
+      zxingReader.reset();
+    } else {
+      zxingReader = new window.ZXing.BrowserMultiFormatReader();
+    }
+    zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
+      if(!scanActive || scanPaused){
+        return;
+      }
+      if(result){
+        const value = result.getText?.() || result.text || "";
+        if(value){
+          presentScanMatch(value);
+        }
+      } else if(err && !(err instanceof window.ZXing.NotFoundException)){
+        console.warn("ZXing decode error", err);
+      }
+    });
+    zxingActive = true;
+    setScanStatusMessage("Point the camera at a barcode. Hold steady to detect.", "info");
+  } catch(err){
+    console.error("ZXing initialization failed", err);
+    setScanStatusMessage(`ZXing fallback failed: ${err.message}`, "error");
+  }
+}
+async function handleScanConfirm(){
+  if(!currentScanRow){
+    setManualStatusMessage("No matching asset to update.", "error");
+    return;
+  }
+  try {
+    await markRowVerified(currentScanRow);
+    updateMetaButtonState(currentScanRow);
+    updateNoteButtonState(currentScanRow);
+    const obj = rowToObj(currentScanRow);
+    const assetLabel = obj.id ? `Asset ${obj.id}` : (obj.serial_number ? `Serial ${obj.serial_number}` : "Asset");
+    const successMsg = `${assetLabel} verified.`;
+    setScanStatusMessage(successMsg, "success");
+    showSavedToast(successMsg, "localImportStatus");
+    hideScanMatchPanel();
+    scanPaused = false;
+    scheduleScanLoop(400);
+  } catch(err){
+    console.error("Failed to mark asset verified", err);
+    setScanStatusMessage(`Failed to update asset: ${err.message}`, "error");
+  }
+}
+function handleScanIgnore(){
+  hideScanMatchPanel();
+  setScanStatusMessage("Continue scanning for barcodes.", "info");
+  scanPaused = false;
+  scheduleScanLoop(300);
+}
+function handleScanStop(){
+  if(scanCtx?.statusId){
+    setStatus(scanCtx.statusId, "Scanning stopped. Use manual lookup or close.", "info");
+  }
+  stopScanner();
+}
+function handleManualLookup(inputValue){
+  const value = (inputValue ?? "").toString().trim();
+  if(!value){
+    setManualStatusMessage("Enter a serial number to search.", "info");
+    return;
+  }
+  hideScanMatchPanel();
+  const row = findRowBySerial(value);
+  if(row){
+    setManualStatusMessage("Match found. Confirm to record verification.", "success");
+    presentScanMatch(value);
+  } else {
+    setManualStatusMessage(`No asset found for serial "${value}".`, "error");
+    setScanStatusMessage("No matching asset found.", "error");
+    scanPaused = false;
+    scheduleScanLoop(300);
+  }
+}
+
+if(openScannerBtn){
+  openScannerBtn.addEventListener("click", ()=>{
+    if(scanModalEl && window.bootstrap){
+      const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
+      modal.show();
+    } else if(scanFallbackEl){
+      scanFallbackEl.classList.add('show');
+      startScanner(true);
+    } else {
+      setStatus("localImportStatus", "Scanner unsupported on this device.", "error");
+    }
+  });
+}
+if(scanModalEl && window.bootstrap){
+  scanModalEl.addEventListener("shown.bs.modal", ()=> startScanner(false));
+  scanModalEl.addEventListener("hidden.bs.modal", ()=> stopScanner());
+}
+if(scanFallbackEl){
+  scanFallbackEl.addEventListener("click", ev => {
+    if(ev.target === scanFallbackEl){
+      stopScanner();
+      scanFallbackEl.classList.remove('show');
+    }
+  });
+}
+if(scanConfirmBtn){
+  scanConfirmBtn.addEventListener("click", ()=> handleScanConfirm());
+}
+if(scanConfirmFallbackBtn){
+  scanConfirmFallbackBtn.addEventListener("click", ()=> handleScanConfirm());
+}
+if(scanIgnoreBtn){
+  scanIgnoreBtn.addEventListener("click", ()=> handleScanIgnore());
+}
+if(scanIgnoreFallbackBtn){
+  scanIgnoreFallbackBtn.addEventListener("click", ()=> handleScanIgnore());
+}
+if(scanStopBtn){
+  scanStopBtn.addEventListener("click", ()=> handleScanStop());
+}
+if(scanStopFallbackBtn){
+  scanStopFallbackBtn.addEventListener("click", ()=> handleScanStop());
+}
+if(scanCloseFallbackBtn){
+  scanCloseFallbackBtn.addEventListener("click", ()=>{
+    stopScanner();
+    if(scanFallbackEl) scanFallbackEl.classList.remove('show');
+  });
+}
+if(manualScanSubmit){
+  manualScanSubmit.addEventListener("click", ()=> handleManualLookup(manualScanInput?.value));
+}
+if(manualScanInput){
+  manualScanInput.addEventListener("keydown", ev => {
+    if(ev.key === "Enter"){
+      ev.preventDefault();
+      handleManualLookup(manualScanInput.value);
+    }
+  });
+}
+if(manualScanSubmitFallback){
+  manualScanSubmitFallback.addEventListener("click", ()=> handleManualLookup(manualScanInputFallback?.value));
+}
+if(manualScanInputFallback){
+  manualScanInputFallback.addEventListener("keydown", ev => {
+    if(ev.key === "Enter"){
+      ev.preventDefault();
+      handleManualLookup(manualScanInputFallback.value);
+    }
+  });
+}
 if(notesFallbackClose && notesFallbackEl){
   notesFallbackClose.addEventListener("click", ()=> notesFallbackEl.classList.remove('show'));
 }
@@ -2559,6 +3081,13 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
       const input = JSON.stringify([{ note:"Check" }]);
       const output = formatMetaForView(input);
       assert(output.trim().startsWith("["), "Expected array output");
+    });
+    addTest("findRowBySerial handles empty values", ()=>{
+      assert(findRowBySerial("") === null, "Expected null for empty serial.");
+      assert(findRowBySerial(null) === null, "Expected null for null serial.");
+    });
+    addTest("formatBytes converts kilobytes", ()=>{
+      assert(formatBytes(1024) === "1 KB", `Expected 1 KB, got ${formatBytes(1024)}`);
     });
 
     addTest("META_PREVIEW_LIMIT is a positive number", ()=>{
