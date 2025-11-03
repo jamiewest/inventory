@@ -708,6 +708,8 @@
           <div id="scanMatchInfo" class="small text-secondary mt-1"></div>
           <div class="d-flex flex-wrap gap-2 mt-3">
             <button class="btn btn-success" id="scanConfirm">Confirm match</button>
+            <button class="btn btn-outline-primary d-none" id="scanEdit">Open in edit</button>
+            <button class="btn btn-outline-primary d-none" id="scanAdd">Add new asset</button>
             <button class="btn btn-outline-secondary" id="scanIgnore">Ignore</button>
           </div>
         </div>
@@ -741,6 +743,8 @@
         <div id="scanMatchInfoFallback" class="small text-secondary mt-1"></div>
         <div class="d-flex flex-wrap gap-2 mt-3">
           <button class="btn btn-success" id="scanConfirmFallback">Confirm match</button>
+          <button class="btn btn-outline-primary d-none" id="scanEditFallback">Open in edit</button>
+          <button class="btn btn-outline-primary d-none" id="scanAddFallback">Add new asset</button>
           <button class="btn btn-outline-secondary" id="scanIgnoreFallback">Ignore</button>
         </div>
       </div>
@@ -2507,6 +2511,8 @@ const scanDetected = document.getElementById('scanDetected');
 const scanMatchInfo = document.getElementById('scanMatchInfo');
 const scanConfirmBtn = document.getElementById('scanConfirm');
 const scanIgnoreBtn = document.getElementById('scanIgnore');
+const scanEditBtn = document.getElementById('scanEdit');
+const scanAddBtn = document.getElementById('scanAdd');
 const scanStopBtn = document.getElementById('scanStop');
 const manualScanInput = document.getElementById('manualScanInput');
 const manualScanSubmit = document.getElementById('manualScanSubmit');
@@ -2517,6 +2523,8 @@ const scanDetectedFallback = document.getElementById('scanDetectedFallback');
 const scanMatchInfoFallback = document.getElementById('scanMatchInfoFallback');
 const scanConfirmFallbackBtn = document.getElementById('scanConfirmFallback');
 const scanIgnoreFallbackBtn = document.getElementById('scanIgnoreFallback');
+const scanEditFallbackBtn = document.getElementById('scanEditFallback');
+const scanAddFallbackBtn = document.getElementById('scanAddFallback');
 const scanStopFallbackBtn = document.getElementById('scanStopFallback');
 const scanCloseFallbackBtn = document.getElementById('scanCloseFallback');
 const manualScanInputFallback = document.getElementById('manualScanInputFallback');
@@ -2532,6 +2540,8 @@ const scanContexts = {
     matchInfo: scanMatchInfo,
     confirm: scanConfirmBtn,
     ignore: scanIgnoreBtn,
+    edit: scanEditBtn,
+    add: scanAddBtn,
     stop: scanStopBtn,
     manualInput: manualScanInput,
     manualSubmit: manualScanSubmit,
@@ -2546,6 +2556,8 @@ const scanContexts = {
     matchInfo: scanMatchInfoFallback,
     confirm: scanConfirmFallbackBtn,
     ignore: scanIgnoreFallbackBtn,
+    edit: scanEditFallbackBtn,
+    add: scanAddFallbackBtn,
     stop: scanStopFallbackBtn,
     manualInput: manualScanInputFallback,
     manualSubmit: manualScanSubmitFallback,
@@ -2562,6 +2574,8 @@ let currentScanRow = null;
 let currentScanCode = "";
 let zxingReader = null;
 let zxingActive = false;
+const ignoredCodes = new Set();
+let lastScanContext = null;
 
 function getScanCtx(useFallback){ return useFallback ? scanContexts.fallback : scanContexts.modal; }
 function setScanStatusMessage(message, variant="info"){
@@ -2584,6 +2598,16 @@ function hideScanMatchPanel(){
   }
   if(scanCtx.confirm){
     scanCtx.confirm.disabled = true;
+  }
+  if(scanCtx.edit){
+    scanCtx.edit.classList.add('d-none');
+  }
+  if(scanCtx.add){
+    scanCtx.add.classList.add('d-none');
+  }
+  if(scanCtx.stop){
+    scanCtx.stop.textContent = "Stop scanning";
+    scanCtx.stop.disabled = false;
   }
   currentScanRow = null;
   currentScanCode = "";
@@ -2633,6 +2657,13 @@ function presentScanMatch(code){
     scheduleScanLoop(200);
     return;
   }
+  const lower = normalized.toLowerCase();
+  if(ignoredCodes.has(lower)){
+    setScanStatusMessage(`Ignored ${normalized}. Continuing scan.`, "info");
+    scanPaused = false;
+    scheduleScanLoop(250);
+    return;
+  }
   currentScanCode = normalized;
   currentScanRow = findRowBySerial(normalized);
   if(scanCtx.matchPanel){
@@ -2653,16 +2684,30 @@ function presentScanMatch(code){
     if(scanCtx.confirm){
       scanCtx.confirm.disabled = false;
     }
-    setScanStatusMessage("Match found. Confirm to record verification or ignore to continue scanning.", "success");
+    if(scanCtx.edit){
+      scanCtx.edit.classList.remove('d-none');
+      scanCtx.edit.disabled = false;
+    }
+    if(scanCtx.add){
+      scanCtx.add.classList.add('d-none');
+    }
+    setScanStatusMessage("Match found. Confirm, edit, or ignore.", "success");
     setManualStatusMessage("", "info");
   } else {
     if(scanCtx.matchInfo){
-      scanCtx.matchInfo.textContent = "No asset matches this serial number. Use manual lookup or ignore.";
+      scanCtx.matchInfo.textContent = "No asset matches this serial number. Use manual lookup or add new asset.";
     }
     if(scanCtx.confirm){
       scanCtx.confirm.disabled = true;
     }
-    setScanStatusMessage("No matching asset found. Use manual lookup or ignore.", "error");
+    if(scanCtx.edit){
+      scanCtx.edit.classList.add('d-none');
+    }
+    if(scanCtx.add){
+      scanCtx.add.classList.remove('d-none');
+      scanCtx.add.disabled = false;
+    }
+    setScanStatusMessage("No matching asset found. Add new asset or ignore.", "error");
     setManualStatusMessage("", "info");
   }
   scanPaused = true;
@@ -2670,6 +2715,7 @@ function presentScanMatch(code){
 async function startScanner(useFallback){
   stopScanner();
   scanCtx = getScanCtx(useFallback);
+  lastScanContext = scanCtx;
   if(!scanCtx){
     setStatus("localImportStatus", "Scanner UI unavailable on this device.", "error");
     return;
@@ -2681,9 +2727,17 @@ async function startScanner(useFallback){
   }
   if(!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia){
     setScanStatusMessage("Camera access is not supported on this device. Use manual lookup.", "error");
+    if(scanCtx.stop){
+      scanCtx.stop.textContent = "Start scanning";
+      scanCtx.stop.disabled = false;
+    }
     scanActive = false;
     scanPaused = true;
     return;
+  }
+  if(scanCtx.stop){
+    scanCtx.stop.disabled = true;
+    scanCtx.stop.textContent = "Starting…";
   }
   try {
     setScanStatusMessage("Requesting camera…", "info");
@@ -2694,6 +2748,11 @@ async function startScanner(useFallback){
     }
     scanActive = true;
     scanPaused = false;
+    if(scanCtx.stop){
+      scanCtx.stop.textContent = "Stop scanning";
+      scanCtx.stop.disabled = false;
+    }
+    setScanStatusMessage("Camera ready. Hold the barcode steady in view.", "info");
     if('BarcodeDetector' in window){
       if(!scanDetector){
         try {
@@ -2719,6 +2778,10 @@ async function startScanner(useFallback){
     setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
     scanActive = false;
     scanPaused = true;
+    if(scanCtx?.stop){
+      scanCtx.stop.textContent = "Start scanning";
+      scanCtx.stop.disabled = false;
+    }
     if(scanStream){
       scanStream.getTracks().forEach(track => track.stop());
       scanStream = null;
@@ -2726,6 +2789,7 @@ async function startScanner(useFallback){
   }
 }
 function stopScanner(){
+  const ctx = scanCtx || lastScanContext;
   clearTimeout(scanLoopTimer);
   scanLoopTimer = null;
   scanActive = false;
@@ -2742,6 +2806,11 @@ function stopScanner(){
     scanCtx.video.srcObject = null;
   }
   hideScanMatchPanel();
+  if(ctx?.stop){
+    ctx.stop.textContent = "Start scanning";
+    ctx.stop.disabled = false;
+  }
+  lastScanContext = ctx;
   scanCtx = null;
 }
 function startZXingLoop(){
@@ -2802,16 +2871,51 @@ async function handleScanConfirm(){
   }
 }
 function handleScanIgnore(){
+  if(currentScanCode){
+    ignoredCodes.add(currentScanCode.toLowerCase());
+  }
   hideScanMatchPanel();
-  setScanStatusMessage("Continue scanning for barcodes.", "info");
+  setScanStatusMessage("Barcode ignored. Continue scanning.", "info");
+  setManualStatusMessage("", "info");
   scanPaused = false;
   scheduleScanLoop(300);
 }
-function handleScanStop(){
-  if(scanCtx?.statusId){
-    setStatus(scanCtx.statusId, "Scanning stopped. Use manual lookup or close.", "info");
+async function handleScanToggle(useFallback){
+  const ctx = getScanCtx(useFallback);
+  if(!ctx) return;
+  if(scanActive || zxingActive){
+    if(ctx.statusId) setStatus(ctx.statusId, "Scanning stopped. Use manual lookup or start scanning.", "info");
+    if(ctx.manualStatusId) setStatus(ctx.manualStatusId, "", "info");
+    stopScanner();
+  } else {
+    if(ctx.statusId) setStatus(ctx.statusId, "Requesting camera…", "info");
+    if(ctx.manualStatusId) setStatus(ctx.manualStatusId, "", "info");
+    await startScanner(useFallback);
   }
+}
+function closeScannerUI(){
   stopScanner();
+  if(scanModalEl && window.bootstrap){
+    const scanModalInstance = bootstrap.Modal.getInstance(scanModalEl);
+    scanModalInstance?.hide();
+  }
+  if(scanFallbackEl){
+    scanFallbackEl.classList.remove('show');
+  }
+}
+function handleScanEdit(){
+  if(!currentScanRow) return;
+  const targetRow = currentScanRow;
+  closeScannerUI();
+  setStatus("localImportStatus", "Opening asset in edit mode.", "info");
+  openViewAsset(targetRow, { edit: true });
+}
+function handleScanAdd(){
+  if(!currentScanCode) return;
+  const serialValue = currentScanCode;
+  closeScannerUI();
+  setStatus("localImportStatus", "Preparing new asset entry.", "info");
+  showAddModal({ serial_number: serialValue, focus: "serial" });
 }
 function handleManualLookup(inputValue){
   const value = (inputValue ?? "").toString().trim();
@@ -2820,15 +2924,11 @@ function handleManualLookup(inputValue){
     return;
   }
   hideScanMatchPanel();
-  const row = findRowBySerial(value);
-  if(row){
-    setManualStatusMessage("Match found. Confirm to record verification.", "success");
-    presentScanMatch(value);
-  } else {
+  presentScanMatch(value);
+  if(currentScanRow){
+    setManualStatusMessage("Match found. Confirm to record verification or open in edit.", "success");
+  } else if(currentScanCode && currentScanCode.toLowerCase() === value.toLowerCase()){
     setManualStatusMessage(`No asset found for serial "${value}".`, "error");
-    setScanStatusMessage("No matching asset found.", "error");
-    scanPaused = false;
-    scheduleScanLoop(300);
   }
 }
 
@@ -2837,7 +2937,7 @@ if(openScannerBtn){
     if(scanModalEl && window.bootstrap){
       const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
       modal.show();
-      setTimeout(()=> startScanner(false), 200);
+      setTimeout(()=> startScanner(false), 120);
     } else if(scanFallbackEl){
       scanFallbackEl.classList.add('show');
       startScanner(true);
@@ -2847,7 +2947,6 @@ if(openScannerBtn){
   });
 }
 if(scanModalEl && window.bootstrap){
-  scanModalEl.addEventListener("shown.bs.modal", ()=> startScanner(false));
   scanModalEl.addEventListener("hidden.bs.modal", ()=> stopScanner());
 }
 if(scanFallbackEl){
@@ -2864,6 +2963,18 @@ if(scanConfirmBtn){
 if(scanConfirmFallbackBtn){
   scanConfirmFallbackBtn.addEventListener("click", ()=> handleScanConfirm());
 }
+if(scanEditBtn){
+  scanEditBtn.addEventListener("click", ()=> handleScanEdit());
+}
+if(scanEditFallbackBtn){
+  scanEditFallbackBtn.addEventListener("click", ()=> handleScanEdit());
+}
+if(scanAddBtn){
+  scanAddBtn.addEventListener("click", ()=> handleScanAdd());
+}
+if(scanAddFallbackBtn){
+  scanAddFallbackBtn.addEventListener("click", ()=> handleScanAdd());
+}
 if(scanIgnoreBtn){
   scanIgnoreBtn.addEventListener("click", ()=> handleScanIgnore());
 }
@@ -2871,10 +2982,10 @@ if(scanIgnoreFallbackBtn){
   scanIgnoreFallbackBtn.addEventListener("click", ()=> handleScanIgnore());
 }
 if(scanStopBtn){
-  scanStopBtn.addEventListener("click", ()=> handleScanStop());
+  scanStopBtn.addEventListener("click", ()=> handleScanToggle(false));
 }
 if(scanStopFallbackBtn){
-  scanStopFallbackBtn.addEventListener("click", ()=> handleScanStop());
+  scanStopFallbackBtn.addEventListener("click", ()=> handleScanToggle(true));
 }
 if(scanCloseFallbackBtn){
   scanCloseFallbackBtn.addEventListener("click", ()=>{
@@ -2946,35 +3057,60 @@ document.querySelectorAll('#localTable thead th[data-sort]').forEach(th => {
   });
 });
 
-openAdd.addEventListener("click", async ()=>{
-  const arr = (await idbGet(IDB_KEY_STATUS)) || [];
-  populateStatusSelect(arr);
-  if(window.bootstrap){
-    m_id.value = "";
-    if(m_serial_number) m_serial_number.value = "";
-    if(m_asset_tag) m_asset_tag.value = "";
-    if(m_type) m_type.value = "";
-    if(m_model) m_model.value = "";
-    if(m_room) m_room.value = "";
-    m_assigned_to.value = "";
-    m_status.value = "";
-    m_status_custom.value = "";
-    m_meta.value = "";
-    const modal = new bootstrap.Modal(addModalEl); modal.show(); setTimeout(()=> m_id.focus(), 150);
+async function showAddModal(defaults={}){
+  const statusesList = (await idbGet(IDB_KEY_STATUS)) || [];
+  populateStatusSelect(statusesList);
+  const statusValue = defaults.status ?? "";
+  const metaValue = typeof defaults.meta === "string"
+    ? defaults.meta
+    : (defaults.meta ? JSON.stringify(defaults.meta, null, 2) : "");
+  const applyToBootstrap = ()=>{
+    if(m_id) m_id.value = defaults.id ?? "";
+    if(m_serial_number) m_serial_number.value = defaults.serial_number ?? "";
+    if(m_asset_tag) m_asset_tag.value = defaults.asset_tag ?? "";
+    if(m_type) m_type.value = defaults.type ?? "";
+    if(m_model) m_model.value = defaults.model ?? "";
+    if(m_room) m_room.value = defaults.room ?? "";
+    if(m_assigned_to) m_assigned_to.value = defaults.assigned_to ?? "";
+    if(m_meta) m_meta.value = metaValue;
+    if(m_status){
+      const hasStatus = statusValue && statusesList.includes(statusValue);
+      m_status.value = hasStatus ? statusValue : "";
+      if(m_status_custom){
+        m_status_custom.value = hasStatus ? "" : statusValue;
+      }
+    }
+  };
+  const applyToFallback = ()=>{
+    if(fb_id) fb_id.value = defaults.id ?? "";
+    if(fb_serial_number) fb_serial_number.value = defaults.serial_number ?? "";
+    if(fb_asset_tag) fb_asset_tag.value = defaults.asset_tag ?? "";
+    if(fb_type) fb_type.value = defaults.type ?? "";
+    if(fb_model) fb_model.value = defaults.model ?? "";
+    if(fb_room) fb_room.value = defaults.room ?? "";
+    if(fb_assigned_to) fb_assigned_to.value = defaults.assigned_to ?? "";
+    if(fb_meta) fb_meta.value = metaValue;
+    const hasStatus = statusValue && statusesList.includes(statusValue);
+    if(fb_status) fb_status.value = hasStatus ? statusValue : "";
+    if(fb_status_custom) fb_status_custom.value = hasStatus ? "" : statusValue;
+  };
+  if(window.bootstrap && addModalEl){
+    applyToBootstrap();
+    const modal = bootstrap.Modal.getOrCreateInstance(addModalEl);
+    modal.show();
+    const focusTarget = defaults.focus === "serial" ? m_serial_number : m_id;
+    setTimeout(()=> focusTarget?.focus(), 150);
+  } else if(fbModalEl){
+    applyToFallback();
+    fbModalEl.classList.add('show');
+    const focusTarget = defaults.focus === "serial" ? fb_serial_number : fb_id;
+    setTimeout(()=> focusTarget?.focus(), 150);
   } else {
-    fb_id.value = "";
-    if(fb_serial_number) fb_serial_number.value = "";
-    if(fb_asset_tag) fb_asset_tag.value = "";
-    if(fb_type) fb_type.value = "";
-    if(fb_model) fb_model.value = "";
-    if(fb_room) fb_room.value = "";
-    fb_assigned_to.value = "";
-    fb_status.value = "";
-    fb_status_custom.value = "";
-    fb_meta.value = "";
-    fbModalEl.classList.add('show'); fb_id.focus();
+    setStatus("localImportStatus", "Add asset UI unavailable in this environment.", "error");
   }
-});
+}
+
+openAdd.addEventListener("click", ()=>{ showAddModal(); });
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
 if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
   const id = norm(fb_id.value); if(!id){ alert("ID is required."); return; }
