@@ -164,8 +164,6 @@
               <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
               <button class="btn btn-outline-success btn-sm" id="openScanner">Scan barcode</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
-              <button class="btn btn-outline-secondary btn-sm" id="clearAll">Clear all</button>
-              <button class="btn btn-outline-primary btn-sm" id="seedSample" title="Populate with example data">Seed sample data</button>
             </div>
           </div>
           <div class="card-body pt-2">
@@ -268,6 +266,14 @@
             </div>
           </div>
           <div id="dataStatus" class="small text-secondary mt-2" role="status" aria-live="polite"></div>
+        </div>
+        <div class="mt-4 pt-3 border-top">
+          <h6 class="mb-1">Sample Dataset</h6>
+          <p class="text-secondary small mb-3">Need demo data for testing or demos? Replace the current working set with 100 sample rows.</p>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-primary" id="seedSample">Seed sample data</button>
+            <div id="seedSampleStatus" class="small text-secondary align-self-center"></div>
+          </div>
         </div>
       </div>
       <div class="card-footer d-flex justify-content-between">
@@ -2020,11 +2026,6 @@ function deleteSelected(){
   queueTableRefresh();
   saveLocalToIDB().then(()=>{ updateLastSaved(); });
 }
-function clearAll(){
-  localBody.innerHTML = "";
-  queueTableRefresh({ resetPage:true });
-  saveLocalToIDB().then(()=>{ updateLastSaved(); });
-}
 selAll.addEventListener("change", e => { $$(".selRow").forEach(cb => cb.checked = selAll.checked); });
 
 // ======= Status options =======
@@ -2119,7 +2120,6 @@ function escapeHtml(s){ return String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&
 
 // ======= Wire up =======
 $("#deleteSelected").addEventListener("click", deleteSelected);
-$("#clearAll").addEventListener("click", clearAll);
 
 $("#saveLocalJson").addEventListener("click", ()=>{
   const rows = readLocal().map(upgradeRow); const a = document.createElement("a");
@@ -2426,6 +2426,7 @@ async function performSeedSample(){
   seedSampleInFlight = true;
   if(seedSampleBtn) seedSampleBtn.disabled = true;
   setStatus("localImportStatus", "Seeding sample data…", "info");
+  setStatus("seedSampleStatus", "Seeding sample data…", "info");
   try {
     const sampleRows = createSeedRows(100).map(upgradeRow);
     resetLocalFilters();
@@ -2436,11 +2437,13 @@ async function performSeedSample(){
     updateLastSaved();
     const successMsg = "Sample data populated (100 rows).";
     setStatus("localImportStatus", successMsg, "success");
+    setStatus("seedSampleStatus", successMsg, "success");
     showSavedToast(successMsg, "localImportStatus");
     await refreshDataStats();
   } catch(err){
     console.error("Seed sample data failed", err);
     setStatus("localImportStatus", `Failed to seed sample data: ${err.message}`, "error");
+    setStatus("seedSampleStatus", `Failed to seed sample data: ${err.message}`, "error");
   } finally {
     seedSampleInFlight = false;
     if(seedSampleBtn) seedSampleBtn.disabled = false;
@@ -2472,6 +2475,7 @@ if(seedConfirmCancel && seedConfirmModalEl){
     const inst = bootstrap.Modal.getInstance(seedConfirmModalEl);
     inst?.hide();
     setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+    setStatus("seedSampleStatus", "Sample data seeding cancelled.", "info");
   });
 }
 if(seedConfirmFallbackConfirm){
@@ -2481,6 +2485,7 @@ if(seedConfirmFallbackCancel && seedConfirmFallbackEl){
   seedConfirmFallbackCancel.addEventListener("click", ()=>{
     seedConfirmFallbackEl.classList.remove('show');
     setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+    setStatus("seedSampleStatus", "Sample data seeding cancelled.", "info");
   });
 }
 if(seedConfirmFallbackEl){
@@ -2488,6 +2493,7 @@ if(seedConfirmFallbackEl){
     if(ev.target === seedConfirmFallbackEl){
       seedConfirmFallbackEl.classList.remove('show');
       setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+      setStatus("seedSampleStatus", "Sample data seeding cancelled.", "info");
     }
   });
 }
