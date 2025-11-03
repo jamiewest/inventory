@@ -237,7 +237,7 @@
         <div class="row g-3 align-items-center">
           <div class="col-12 col-md-9">
             <label for="statusOptions" class="form-label">Statuses (comma-separated)</label>
-            <input id="statusOptions" class="form-control" placeholder="e.g. Disposed, Initial, Installed, Returned, Shipped, Stored"/>
+            <input id="statusOptions" class="form-control" placeholder="e.g. In Stock, Assigned, Repair, Lost, Disposed"/>
             <div class="text-secondary mt-1">Used to populate the Add modal’s dropdown. You can still type custom statuses in the modal.</div>
           </div>
           <div class="col-12 col-md-3 d-grid d-md-flex align-items-end">
@@ -924,7 +924,7 @@ function createSeedRows(count=100){
   const managers = ["Keith Ross","Morgan Lee","Riley Chen","Avery Scott"];
   const locations = ["Riverside Annex","HQ North","Warehouse B","Innovation Lab","Remote Storage"];
   const rooms = ["Cubicle","Office","Room","Hot Desk","Studio"];
-  const statuses = ["Installed","Stored","Returned","Shipped","Initial","Disposed"];
+  const statuses = ["In Stock","Assigned","Repair","Lost","Disposed"];
   const descriptions = [
     "Installed last week",
     "Ready for deployment",
@@ -2230,7 +2230,7 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
   // Status options
   let statuses = await idbGet(IDB_KEY_STATUS);
   if(!Array.isArray(statuses) || statuses.length===0){
-    statuses = ["Disposed","Initial","Installed","Returned","Shipped","Stored"];
+    statuses = ["In Stock","Assigned","Repair","Lost","Disposed"];
     await idbSet(IDB_KEY_STATUS, statuses);
   }
   const statusInputEl = document.getElementById('statusOptions');
