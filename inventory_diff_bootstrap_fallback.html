@@ -2264,6 +2264,76 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
   renderLocal(rows);
   updateLastSaved();
 })();
+
+// ======= Inline Self-Tests (opt-in via ?selftest=1 or #selftest) =======
+(function registerInlineTests(){
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const hash = (window.location.hash || "").toLowerCase();
+    const enabled = params.has("selftest") || hash.includes("selftest");
+    if(!enabled) return;
+
+    const tests = [];
+    const addTest = (name, fn) => tests.push({ name, fn });
+    const assert = (condition, message) => {
+      if(!condition) throw new Error(message || "Assertion failed");
+    };
+
+    addTest("normalizeFieldKey strips non-alphanumerics", ()=>{
+      const result = normalizeFieldKey(" Asset-ID ");
+      assert(result === "assetid", `Expected "assetid", got "${result}"`);
+    });
+
+    addTest("formatMetaForView removes reserved keys", ()=>{
+      const input = JSON.stringify({ id:"A1", status:"Active", custom:"keep" });
+      const output = formatMetaForView(input);
+      assert(output.includes('"custom": "keep"'), "Expected custom key to remain");
+      assert(!output.includes("status"), "Reserved key 'status' should be removed");
+      assert(!output.includes('"id"'), "Reserved key 'id' should be removed");
+    });
+
+    addTest("formatMetaForView returns raw text when JSON parse fails", ()=>{
+      const input = " not-json ";
+      const output = formatMetaForView(input);
+      assert(output === "not-json", "Expected raw string when parsing fails");
+    });
+
+    addTest("formatMetaForView preserves arrays", ()=>{
+      const input = JSON.stringify([{ note:"Check" }]);
+      const output = formatMetaForView(input);
+      assert(output.trim().startsWith("["), "Expected array output");
+    });
+
+    addTest("META_PREVIEW_LIMIT is a positive number", ()=>{
+      assert(typeof META_PREVIEW_LIMIT === "number", "META_PREVIEW_LIMIT should be numeric");
+      assert(Number.isFinite(META_PREVIEW_LIMIT) && META_PREVIEW_LIMIT >= 100, "META_PREVIEW_LIMIT should be >= 100");
+    });
+
+    const results = [];
+    console.group("Inventory inline self-tests");
+    tests.forEach(test => {
+      try {
+        test.fn();
+        console.log(`%c✔ ${test.name}`, "color: #15803d;");
+        results.push({ name: test.name, status: "passed" });
+      } catch(err){
+        console.error(`✖ ${test.name}`, err);
+        results.push({ name: test.name, status: "failed", error: err });
+      }
+    });
+    console.groupEnd();
+
+    const failed = results.filter(r => r.status === "failed");
+    if(failed.length){
+      setStatus("localImportStatus", `${failed.length} inline test${failed.length===1?"":"s"} failed. See console for details.`, "error");
+    } else if(results.length){
+      setStatus("localImportStatus", `Inline tests passed (${results.length}).`, "success");
+    }
+  } catch(err){
+    console.error("Inline test harness failed", err);
+    setStatus("localImportStatus", `Inline test harness error: ${err.message}`, "error");
+  }
+})();
 </script>
 </body>
 </html>
