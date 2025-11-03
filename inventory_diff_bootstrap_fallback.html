@@ -455,7 +455,7 @@
       <div class="modal-body">
         <div id="notesList" class="notes-list mb-3"></div>
         <div>
-          <div class="small text-secondary mb-1">Meta JSON</div>
+          <div class="small text-secondary mb-1" id="notesMetaLabel">Meta JSON</div>
           <pre id="notesMetaJson" class="notes-pre"></pre>
         </div>
       </div>
@@ -828,6 +828,8 @@ const VIEW_MODAL_FIELDS = [
   { label: "Survey Number", aliases: ["survey_number", "SurveyNumber"] },
   { label: "Disposal Reason", aliases: ["disposal_reason", "DisposalReason"] }
 ];
+// Limit for inline meta previews inside the view modal.
+const META_PREVIEW_LIMIT = 400;
 const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
 let pendingRefreshOpts = {};
 let refreshTimeout = null;
@@ -845,6 +847,7 @@ function queueTableRefresh(opts){
 function normalizeFieldKey(key){
   return (key ?? "").toString().replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
+// Capture field names already shown in the table so we can hide duplicates from meta.
 const RESERVED_META_KEYS = (() => {
   const reserved = new Set(localCols.map(normalizeFieldKey));
   VIEW_MODAL_FIELDS.forEach(field => {
@@ -1112,6 +1115,7 @@ function normalizeViewValue(value){
   }
   return String(value ?? '');
 }
+// Safely stringify meta data while filtering out duplicate fields.
 function formatMetaForView(metaString){
   if(!metaString) return '';
   try {
@@ -1158,7 +1162,9 @@ function renderViewAsset(row){
   });
   const metaValueRaw = base.meta && base.meta.trim() ? formatMetaForView(base.meta.trim()) : '';
   if(metaValueRaw){
-    const metaPreview = metaValueRaw.length > 400 ? `${metaValueRaw.slice(0, 400).trimEnd()}…` : metaValueRaw;
+    const metaPreview = metaValueRaw.length > META_PREVIEW_LIMIT
+      ? `${metaValueRaw.slice(0, META_PREVIEW_LIMIT).trimEnd()}…`
+      : metaValueRaw;
     const tr = document.createElement('tr');
     const th = document.createElement('th');
     th.scope = 'row';
@@ -1170,7 +1176,7 @@ function renderViewAsset(row){
     pre.className = 'mb-0 meta-preview';
     pre.textContent = metaPreview;
     wrapper.appendChild(pre);
-    if(metaValueRaw.length > 400){
+    if(metaValueRaw.length > META_PREVIEW_LIMIT){
       const hint = document.createElement('div');
       hint.className = 'small text-secondary';
       hint.textContent = 'Preview truncated. Open the meta viewer to see the full JSON.';
@@ -1325,6 +1331,7 @@ function openViewAsset(row, options){
   }
 }
 if(viewModalEl && !viewModalInstance){
+  // Provide manual hide handling when Bootstrap JS isn't available.
   const hideFallbackModal = ()=>{
     viewModalEl.classList.remove('show');
     viewModalEl.style.display = 'none';
@@ -1492,7 +1499,8 @@ function handleViewMeta(tr){
   }
   const assetId = idCell?.textContent.trim() || "(no id)";
   const rawMeta = metaCell.textContent ?? "";
-  const prettyMeta = (()=>{
+  const filteredMeta = formatMetaForView(rawMeta);
+  const prettyMeta = filteredMeta || (()=> {
     if(!rawMeta) return "";
     try { return JSON.stringify(JSON.parse(rawMeta), null, 2); }
     catch { return rawMeta; }
@@ -1563,23 +1571,31 @@ function handleViewNotes(tr){
         return `<li><time>${escapeHtml(timestamp)}</time><div>${formattedNote}</div>${extras}</li>`;
       }).join("")}</ol>`
     : '<p class="text-secondary mb-0">No notes recorded yet.</p>';
-  let prettyMeta = rawMeta.trim();
+  const filteredNotesMeta = formatMetaForView(rawMeta);
+  let metaLabel = "Meta JSON";
+  let prettyMeta = filteredNotesMeta || rawMeta.trim();
   if(prettyMeta){
     try {
-      prettyMeta = JSON.stringify(JSON.parse(rawMeta), null, 2);
-    } catch {}
+      prettyMeta = JSON.stringify(JSON.parse(prettyMeta), null, 2);
+    } catch {
+      prettyMeta = prettyMeta.trim();
+    }
   } else {
     prettyMeta = "(empty)";
   }
+  if(!filteredNotesMeta && rawMeta.trim()){
+    metaLabel = "Meta (raw)";
+  }
   if(window.bootstrap && notesModalEl){
-    notesTitleEl.textContent = `Notes – ${assetId}`;
-    notesListEl.innerHTML = listHtml;
-    notesMetaEl.textContent = prettyMeta;
+    if(notesTitleEl) notesTitleEl.textContent = `Notes – ${assetId}`;
+    if(notesListEl) notesListEl.innerHTML = listHtml;
+    if(notesMetaLabelEl) notesMetaLabelEl.textContent = metaLabel;
+    if(notesMetaEl) notesMetaEl.textContent = prettyMeta;
     const modal = bootstrap.Modal.getOrCreateInstance(notesModalEl);
     modal.show();
   } else if(notesFallbackEl){
-    notesFallbackTitle.innerHTML = `<strong>Notes – ${escapeHtml(assetId)}</strong>`;
-    notesFallbackContent.innerHTML = `${listHtml}<hr><div class="small text-secondary mb-1">Meta JSON</div><pre class="notes-pre">${escapeHtml(prettyMeta)}</pre>`;
+    if(notesFallbackTitle) notesFallbackTitle.innerHTML = `<strong>Notes – ${escapeHtml(assetId)}</strong>`;
+    if(notesFallbackContent) notesFallbackContent.innerHTML = `${listHtml}<hr><div class="small text-secondary mb-1">${escapeHtml(metaLabel)}</div><pre class="notes-pre">${escapeHtml(prettyMeta)}</pre>`;
     notesFallbackEl.classList.add('show');
   } else {
     setStatus("localImportStatus", "Unable to display notes viewer.", "error");
@@ -1984,6 +2000,7 @@ const localNextPage = document.getElementById('localNextPage');
 const notesModalEl = document.getElementById('notesModal');
 const notesTitleEl = document.getElementById('notesTitle');
 const notesListEl = document.getElementById('notesList');
+const notesMetaLabelEl = document.getElementById('notesMetaLabel');
 const notesMetaEl = document.getElementById('notesMetaJson');
 const noteModalEl = document.getElementById('noteModal');
 const noteModalTitle = document.getElementById('noteModalTitle');
