@@ -32,7 +32,7 @@
   .fallback .badge { display:inline-block; padding:.2rem .4rem; border:1px solid #d0d7de; border-radius:.4rem; color:#4a5563; }
   .fallback table { width:100%; border-collapse:collapse; }
   .fallback th, .fallback td { border-bottom:1px solid #e5e9f2; padding:.5rem; vertical-align:top; }
-  .fallback .toast-save { position: fixed; right: 1rem; bottom: 1rem; background:#ffffff; border:1px solid #d0d7de; padding:.4rem .6rem; border-radius:.4rem; }
+  .toast-save { position: fixed; right: 1rem; bottom: 1rem; background:#ffffff; border:1px solid #d0d7de; padding:.4rem .6rem; border-radius:.4rem; box-shadow:0 6px 18px rgba(15,23,42,.2); transition:opacity .2s ease; }
   .fallback .ms-1 { margin-left:.25rem; }
   /* Custom modal fallback */
   .modal-fb { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
@@ -246,6 +246,19 @@
         </div>
         <div class="mt-2">
           <span id="statusSaved" class="badge text-bg-secondary">Not saved</span>
+        </div>
+        <div class="mt-4 pt-3 border-top">
+          <h6 class="mb-1">Data Management</h6>
+          <p class="text-secondary small mb-3">Manage inventory data cached in this browser. Deleting storage removes saved rows and status options.</p>
+          <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-8">
+              <div id="dataStats" class="small text-secondary">Calculating storage stats…</div>
+            </div>
+            <div class="col-12 col-md-4 d-grid d-md-flex justify-content-md-end">
+              <button class="btn btn-outline-danger w-100" id="clearIndexedDB">Delete saved data</button>
+            </div>
+          </div>
+          <div id="dataStatus" class="small text-secondary mt-2" role="status" aria-live="polite"></div>
         </div>
       </div>
       <div class="card-footer d-flex justify-content-between">
@@ -626,6 +639,50 @@
   </div>
 </div>
 
+<!-- Seed sample confirm (Bootstrap) -->
+<div class="modal fade" id="seedConfirmModal" tabindex="-1" aria-labelledby="seedConfirmTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="seedConfirmTitle">Seed Sample Data</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Replace the current inventory with 100 sample rows? This will overwrite any unsaved changes.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="seedConfirmCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="seedConfirmConfirm">Seed sample data</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Seed sample confirm (fallback) -->
+<div id="seedConfirmFallback" class="modal-fb" aria-hidden="true">
+  <div class="panel">
+    <header><strong>Seed Sample Data</strong></header>
+    <div class="content">
+      <p class="mb-0">Replace the current inventory with 100 sample rows? This will overwrite any unsaved changes.</p>
+    </div>
+    <div class="actions" style="display:flex; gap:.5rem; justify-content:flex-end; padding:.75rem 1rem;">
+      <button class="btn" id="seedConfirmFallbackCancel">Cancel</button>
+      <button class="btn btn-primary" id="seedConfirmFallbackConfirm">Seed sample data</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast containers -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toastSave" class="toast text-bg-success border-0" role="status" aria-live="polite" aria-atomic="true" data-bs-autohide="true" data-bs-delay="2400">
+    <div class="d-flex align-items-center">
+      <div class="toast-body">Saved.</div>
+      <button type="button" class="btn-close btn-close-white ms-2 me-1" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+<div id="toastSaveFallback" class="toast-save vis-hide">Saved.</div>
 
 <!-- Primary Bootstrap Bundle -->
 <script id="bs-js-1" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
@@ -704,7 +761,11 @@ function idbOpen(){
         db.createObjectStore(STORE, { keyPath: 'key' });
       }
     };
-    req.onsuccess = ()=> resolve(req.result);
+    req.onsuccess = ()=>{
+      const db = req.result;
+      db.onversionchange = ()=> db.close();
+      resolve(db);
+    };
     req.onerror = ()=> reject(req.error);
   });
 }
@@ -714,6 +775,8 @@ async function idbGet(key){
     const tx = db.transaction(STORE, 'readonly');
     const st = tx.objectStore(STORE);
     const req = st.get(key);
+    tx.oncomplete = ()=> db.close();
+    tx.onabort = ()=> db.close();
     req.onsuccess = ()=> resolve(req.result ? req.result.value : undefined);
     req.onerror = ()=> reject(req.error);
   });
@@ -724,6 +787,8 @@ async function idbSet(key, value){
     const tx = db.transaction(STORE, 'readwrite');
     const st = tx.objectStore(STORE);
     const req = st.put({ key, value });
+    tx.oncomplete = ()=> db.close();
+    tx.onabort = ()=> db.close();
     req.onsuccess = ()=> resolve(true);
     req.onerror = ()=> reject(req.error);
   });
@@ -732,8 +797,30 @@ async function idbSet(key, value){
 // ======= Utilities =======
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
+const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 function norm(v){ return (v ?? '').toString().trim(); }
 function toMapById(rows){ const m = new Map(); for(const r of rows){ const id = norm(r.id); if(id) m.set(id, r); } return m; }
+function formatBytes(bytes){
+  if(!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B","KB","MB","GB","TB"];
+  let value = bytes;
+  let unit = 0;
+  while(value >= 1024 && unit < units.length - 1){
+    value /= 1024;
+    unit++;
+  }
+  const decimals = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(decimals)} ${units[unit]}`;
+}
+function estimateSize(value){
+  try {
+    const json = typeof value === "string" ? value : JSON.stringify(value ?? "");
+    if(textEncoder) return textEncoder.encode(json).length;
+    return json.length;
+  } catch {
+    return 0;
+  }
+}
 
 function parseCSV(text){
   const rows = []; let i=0, cur='', inQ=false, row=[];
@@ -802,6 +889,33 @@ function setStatus(id, message, variant="info"){
   const cls = variants[variant] || variants.info;
   el.classList.add(cls);
   el.textContent = message || "";
+}
+let toastFallbackTimer = null;
+function showSavedToast(message, fallbackStatusId){
+  const text = message || "Saved.";
+  const hasBootstrapToast = !!(window.bootstrap && typeof window.bootstrap.Toast === "function");
+  const toastEl = hasBootstrapToast ? document.getElementById("toastSave") : null;
+  if(toastEl){
+    const body = toastEl.querySelector(".toast-body");
+    if(body) body.textContent = text;
+    const toast = bootstrap.Toast.getOrCreateInstance(toastEl);
+    toast.show();
+  } else {
+    const fallbackEl = document.getElementById("toastSaveFallback");
+    if(fallbackEl){
+      fallbackEl.textContent = text;
+      fallbackEl.classList.remove("vis-hide");
+      fallbackEl.style.opacity = "1";
+      clearTimeout(toastFallbackTimer);
+      toastFallbackTimer = setTimeout(()=>{
+        fallbackEl.style.opacity = "0";
+        setTimeout(()=> fallbackEl.classList.add("vis-hide"), 200);
+      }, 2000);
+    }
+  }
+  if(fallbackStatusId){
+    setStatus(fallbackStatusId, text, "success");
+  }
 }
 
 // ======= Local Working Set =======
@@ -1059,7 +1173,8 @@ function renderLocal(rows){
 function readLocal(){ return Array.from(localBody.querySelectorAll("tr")).map(rowToObj).filter(r => Object.values(r).some(v => v !== "")); }
 async function saveLocalToIDB(){
   const rows = readLocal().map(upgradeRow);
-  await idbSet('localRows', rows);
+  await idbSet(IDB_KEY_ROWS, rows);
+  await refreshDataStats();
 }
 function addRow(data={}){
   localBody.appendChild(objToRow(upgradeRow(data)));
@@ -1661,6 +1776,47 @@ function syncStatusFilterOptions(){
   });
   updateStatusFilterOptions(Array.from(statuses));
 }
+function resetLocalFilters(){
+  tableState.search = "";
+  tableState.status = "";
+  tableState.page = 1;
+  if(localSearchInput) localSearchInput.value = "";
+  if(localStatusFilter) localStatusFilter.value = "";
+}
+async function refreshDataStats(){
+  if(!dataStatsEl) return;
+  try {
+    const [rowsValue, statusesValue] = await Promise.all([
+      idbGet(IDB_KEY_ROWS).catch(()=>undefined),
+      idbGet(IDB_KEY_STATUS).catch(()=>undefined)
+    ]);
+    const rowsList = Array.isArray(rowsValue) ? rowsValue : [];
+    const statusesList = Array.isArray(statusesValue) ? statusesValue : [];
+    const totalBytes = estimateSize(rowsList) + estimateSize(statusesList);
+    const message = `Rows: ${rowsList.length}, Status options: ${statusesList.length}, Approx size: ${formatBytes(totalBytes)}.`;
+    dataStatsEl.textContent = message;
+  } catch(err){
+    dataStatsEl.textContent = `Unable to read storage stats (${err.message})`;
+  }
+}
+function wipeIndexedDB(){
+  return new Promise((resolve, reject)=>{
+    let blocked = false;
+    try {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onblocked = ()=> {
+        blocked = true;
+        reject(new Error("Deletion blocked. Close other tabs using this inventory."));
+      };
+      req.onerror = ()=> reject(req.error || new Error("Failed to delete IndexedDB."));
+      req.onsuccess = ()=> {
+        if(!blocked) resolve();
+      };
+    } catch(err){
+      reject(err);
+    }
+  });
+}
 function refreshLocalView(opts){
   opts = opts || {};
   if(opts.resetPage){ tableState.page = 1; }
@@ -1759,7 +1915,9 @@ selAll.addEventListener("change", e => { $$(".selRow").forEach(cb => cb.checked 
 const statusInput = $("#statusOptions"); const statusSaved = $("#statusSaved");
 $("#saveStatus").addEventListener("click", async ()=>{
   const raw = statusInput.value; const arr = raw.split(",").map(s => s.trim()).filter(Boolean);
-  await idbSet(IDB_KEY_STATUS, arr); statusSaved.textContent = `Saved ${arr.length} item(s)`; populateStatusSelect(arr); showSavedToast();
+  await idbSet(IDB_KEY_STATUS, arr);
+  statusSaved.textContent = `Saved ${arr.length} item(s)`; populateStatusSelect(arr); showSavedToast();
+  await refreshDataStats();
 });
 function populateStatusSelect(arr){
   const list = Array.isArray(arr) ? arr : [];
@@ -1790,7 +1948,6 @@ function populateStatusSelect(arr){
     populateViewForm(currentViewRow);
   }
 }
-
 // ======= Official snapshot =======
 let officialRows = []; const officialStats = $("#officialStats");
 const officialPreviewWrap = $("#officialPreviewWrap"); const officialPreviewHead = $("#officialPreview thead"); const officialPreviewBody = $("#officialPreview tbody");
@@ -2010,6 +2167,8 @@ const metaModalEl = document.getElementById('metaModal');
 const metaModalTitle = document.getElementById('metaModalTitle');
 const metaModalText = document.getElementById('metaModalText');
 const metaModalSaveBtn = document.getElementById('metaModalSave');
+const dataStatsEl = document.getElementById('dataStats');
+const clearIndexedDBBtn = document.getElementById('clearIndexedDB');
 const notesFallbackEl = document.getElementById('notesFallback');
 const notesFallbackTitle = document.getElementById('notesFallbackTitle');
 const notesFallbackContent = document.getElementById('notesFallbackContent');
@@ -2025,6 +2184,43 @@ const metaFallbackText = document.getElementById('metaFallbackText');
 const metaFallbackCancel = document.getElementById('metaFallbackCancel');
 const metaFallbackSave = document.getElementById('metaFallbackSave');
 const seedSampleBtn = document.getElementById('seedSample');
+const seedConfirmModalEl = document.getElementById('seedConfirmModal');
+const seedConfirmConfirm = document.getElementById('seedConfirmConfirm');
+const seedConfirmCancel = document.getElementById('seedConfirmCancel');
+const seedConfirmFallbackEl = document.getElementById('seedConfirmFallback');
+const seedConfirmFallbackConfirm = document.getElementById('seedConfirmFallbackConfirm');
+const seedConfirmFallbackCancel = document.getElementById('seedConfirmFallbackCancel');
+
+if(clearIndexedDBBtn){
+  clearIndexedDBBtn.addEventListener("click", async ()=>{
+    const confirmed = window.confirm("Delete all cached inventory data in this browser?");
+    if(!confirmed){
+      setStatus("dataStatus", "Deletion cancelled.", "info");
+      return;
+    }
+    clearIndexedDBBtn.disabled = true;
+    setStatus("dataStatus", "Deleting stored data…", "info");
+    try {
+      await wipeIndexedDB();
+      localStorage.removeItem(LS_KEY_MIGRATION);
+      if(statusInput) statusInput.value = "";
+      if(statusSaved) statusSaved.textContent = "Not saved";
+      populateStatusSelect([]);
+      if(selAll) selAll.checked = false;
+      if(localBody) localBody.innerHTML = "";
+      resetLocalFilters();
+      queueTableRefresh({ resetPage:true });
+      setStatus("localImportStatus", "Local table cleared. Seed sample data or import to continue.", "info");
+      setStatus("dataStatus", "Stored data deleted. Reload or seed sample data to continue.", "success");
+      showSavedToast("Stored data deleted.", "dataStatus");
+    } catch(err){
+      setStatus("dataStatus", `Failed to delete stored data: ${err.message}`, "error");
+    } finally {
+      clearIndexedDBBtn.disabled = false;
+      await refreshDataStats();
+    }
+  });
+}
 
 if(noteModalSaveBtn && noteModalEl){
   noteModalSaveBtn.addEventListener("click", ()=>{
@@ -2108,15 +2304,75 @@ if(metaFallbackEl){
     }
   });
 }
-if(seedSampleBtn){
-  seedSampleBtn.addEventListener("click", async ()=>{
-    if(!confirm("Replace current inventory with sample data?")) return;
+let seedSampleInFlight = false;
+async function performSeedSample(){
+  if(seedSampleInFlight) return;
+  seedSampleInFlight = true;
+  if(seedSampleBtn) seedSampleBtn.disabled = true;
+  setStatus("localImportStatus", "Seeding sample data…", "info");
+  try {
     const sampleRows = createSeedRows(100).map(upgradeRow);
+    resetLocalFilters();
     renderLocal(sampleRows);
-    await idbSet(IDB_KEY_ROWS, sampleRows);
     queueTableRefresh({ resetPage:true });
-    showSavedToast();
-    setStatus("localImportStatus", "Sample data populated.", "success");
+    if(selAll) selAll.checked = false;
+    await saveLocalToIDB();
+    updateLastSaved();
+    const successMsg = "Sample data populated (100 rows).";
+    setStatus("localImportStatus", successMsg, "success");
+    showSavedToast(successMsg, "localImportStatus");
+    await refreshDataStats();
+  } catch(err){
+    console.error("Seed sample data failed", err);
+    setStatus("localImportStatus", `Failed to seed sample data: ${err.message}`, "error");
+  } finally {
+    seedSampleInFlight = false;
+    if(seedSampleBtn) seedSampleBtn.disabled = false;
+    if(seedConfirmModalEl && window.bootstrap){
+      const inst = bootstrap.Modal.getInstance(seedConfirmModalEl);
+      inst?.hide();
+    }
+    if(seedConfirmFallbackEl) seedConfirmFallbackEl.classList.remove('show');
+  }
+}
+if(seedSampleBtn){
+  seedSampleBtn.addEventListener("click", ()=>{
+    if(seedSampleInFlight) return;
+    if(seedConfirmModalEl && window.bootstrap){
+      const modal = bootstrap.Modal.getOrCreateInstance(seedConfirmModalEl);
+      modal.show();
+    } else if(seedConfirmFallbackEl){
+      seedConfirmFallbackEl.classList.add('show');
+    } else {
+      performSeedSample();
+    }
+  });
+}
+if(seedConfirmConfirm){
+  seedConfirmConfirm.addEventListener("click", ()=> performSeedSample());
+}
+if(seedConfirmCancel && seedConfirmModalEl){
+  seedConfirmCancel.addEventListener("click", ()=>{
+    const inst = bootstrap.Modal.getInstance(seedConfirmModalEl);
+    inst?.hide();
+    setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+  });
+}
+if(seedConfirmFallbackConfirm){
+  seedConfirmFallbackConfirm.addEventListener("click", ()=> performSeedSample());
+}
+if(seedConfirmFallbackCancel && seedConfirmFallbackEl){
+  seedConfirmFallbackCancel.addEventListener("click", ()=>{
+    seedConfirmFallbackEl.classList.remove('show');
+    setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+  });
+}
+if(seedConfirmFallbackEl){
+  seedConfirmFallbackEl.addEventListener("click", ev => {
+    if(ev.target === seedConfirmFallbackEl){
+      seedConfirmFallbackEl.classList.remove('show');
+      setStatus("localImportStatus", "Sample data seeding cancelled.", "info");
+    }
   });
 }
 if(notesFallbackClose && notesFallbackEl){
@@ -2263,6 +2519,7 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
   }
   renderLocal(rows);
   updateLastSaved();
+  await refreshDataStats();
 })();
 
 // ======= Inline Self-Tests (opt-in via ?selftest=1 or #selftest) =======
