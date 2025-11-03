@@ -198,7 +198,6 @@
                 <thead class="table-light">
                   <tr>
                     <th style="width:36px;"><input class="form-check-input" type="checkbox" id="selAll"></th>
-                    <th class="sortable" data-sort="id"><span>ID</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="serial_number"><span>Serial Number</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="asset_tag"><span>Asset Tag</span><span class="sort-indicator" aria-hidden="true"></span></th>
                     <th class="sortable" data-sort="type"><span>Type</span><span class="sort-indicator" aria-hidden="true"></span></th>
@@ -558,8 +557,8 @@
             <p class="small text-secondary mb-2">Edit mode is active. Update the fields below and select “Save changes”.</p>
             <div class="row g-3">
               <div class="col-12 col-md-6">
-                <label for="view_edit_id" class="form-label">ID *</label>
-                <input id="view_edit_id" class="form-control" type="text" required/>
+                <label for="view_edit_id" class="form-label">Record ID</label>
+                <input id="view_edit_id" class="form-control" type="text" placeholder="optional"/>
               </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_serial_number" class="form-label">Serial Number</label>
@@ -1012,9 +1011,9 @@ function showSavedToast(message, fallbackStatusId){
 }
 
 // ======= Local Working Set =======
-const localCols = ["id","serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
+const localCols = ["serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
 const VIEW_MODAL_FIELDS = [
-  { label: "ID", aliases: ["id", "ID", "AssetID", "AssetTag", "SerialNumber"] },
+  { label: "Record ID", aliases: ["id", "RecordID", "AssetID"] },
   { label: "Name", aliases: ["name", "Name"] },
   { label: "Serial Number", aliases: ["serial_number", "SerialNumber"] },
   { label: "Asset Tag", aliases: ["asset_tag", "AssetTag"] },
@@ -1037,7 +1036,7 @@ const VIEW_MODAL_FIELDS = [
 ];
 // Limit for inline meta previews inside the view modal.
 const META_PREVIEW_LIMIT = 400;
-const tableState = { search:"", status:"", sortBy:"id", sortDir:"asc", page:1, pageSize:"25" };
+const tableState = { search:"", status:"", sortBy:"serial_number", sortDir:"asc", page:1, pageSize:"25" };
 let pendingRefreshOpts = {};
 let refreshTimeout = null;
 const SORTABLE_COLS = new Set(localCols.concat("meta"));
@@ -1408,8 +1407,12 @@ function renderViewAsset(row){
     viewModalDetails.appendChild(tr);
   }
   if(viewModalTitle){
-    const titleId = base.id ? base.id : record.id;
-    viewModalTitle.textContent = titleId ? `Asset – ${titleId}` : 'Asset Details';
+    const titleParts = [];
+    const idPart = base.id ? `ID: ${base.id}` : (record.serial_number ? `Serial: ${record.serial_number}` : "");
+    if(idPart) titleParts.push(idPart);
+    if(record.assigned_to) titleParts.push(record.assigned_to);
+    if(record.model) titleParts.push(record.model);
+    viewModalTitle.textContent = titleParts.length ? titleParts.join(" • ") : 'Asset Details';
   }
 }
 function toggleViewEditMode(enabled){
@@ -1508,7 +1511,8 @@ async function applyViewFormChanges(){
     await saveLocalToIDB();
     showSavedToast();
     updateLastSaved();
-    setStatus("localImportStatus", `Asset ${updates.id} updated.`, "success");
+    const label = updates.id ? `Record ${updates.id}` : (updates.serial_number ? `Serial ${updates.serial_number}` : "Record");
+    setStatus("localImportStatus", `${label} updated.`, "success");
     toggleViewEditMode(false);
   } catch(err){
     setStatus("localImportStatus", `Failed to save changes: ${err.message}`, "error");
@@ -1976,7 +1980,7 @@ function refreshLocalView(opts){
       row.style.display = "none";
     }
   });
-  const sortKey = SORTABLE_COLS.has(tableState.sortBy) ? tableState.sortBy : "id";
+  const sortKey = SORTABLE_COLS.has(tableState.sortBy) ? tableState.sortBy : "serial_number";
   filtered.sort((a,b)=>{
     const cmp = compareValues(a.data, b.data, sortKey);
     return tableState.sortDir === "desc" ? -cmp : cmp;
