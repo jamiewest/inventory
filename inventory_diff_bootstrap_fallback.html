@@ -2625,11 +2625,11 @@ async function detectSerialFromFrame(video){
     console.warn('OCR preprocessing failed', err);
   }
   try {
-    const { data } = await window.Tesseract.recognize(ocrCanvas, 'eng', {
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    });
+      const { data } = await window.Tesseract.recognize(ocrCanvas, 'eng', {
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+      });
     const text = data?.text ?? '';
-    return extractSerialCandidates(text);
+    return extractSerialCandidates(text).map(normalizeSerialCandidate);
   } catch(err){
     console.warn('Tesseract recognize failed', err);
     return [];
@@ -2680,6 +2680,12 @@ function extractBarcodeValue(results){
   }
   return "";
 }
+function extractSerialFromPayload(payload){
+  if(!payload) return null;
+  const candidates = extractSerialCandidates(payload);
+  if(!candidates.length) return null;
+  return normalizeSerialCandidate(candidates[0]);
+}
 function extractSerialCandidates(text){
   if(!text) return [];
   const uppercase = text.toUpperCase();
@@ -2690,6 +2696,34 @@ function extractSerialCandidates(text){
     const uniqueChars = new Set(code.split(""));
     return uniqueChars.size >= 3;
   });
+}
+function normalizeSerialCandidate(code){
+  if(!code) return "";
+  let value = code.toUpperCase();
+  const replacements = {
+    '0': 'O',
+    '1': 'I',
+    '5': 'S',
+    '6': 'G',
+    '8': 'B',
+    '9': 'G',
+    'O': 'O',
+    'I': 'I',
+    'Z': 'Z'
+  };
+  const chars = value.split("");
+  for(let i=0;i<chars.length;i++){
+    const ch = chars[i];
+    if(/[0-9]/.test(ch)){
+      const repl = replacements[ch];
+      if(repl && /[A-Z]/.test(chars[i-1] || '') && /[A-Z]/.test(chars[i+1] || '')){
+        chars[i] = repl;
+      }
+    }
+  }
+  value = chars.join("");
+  const match = value.match(/^[A-Z0-9]{7}$/);
+  return match ? value : code.toUpperCase();
 }
 function ensureOcrCanvas(width, height){
   if(!ocrCanvas){
@@ -2722,7 +2756,8 @@ function scheduleScanLoop(delay=300){
       const results = await scanDetector.detect(scanCtx.video);
       const value = extractBarcodeValue(results);
       if(value){
-        presentScanMatch(value.trim());
+        const normalized = extractSerialFromPayload(value) || value.trim();
+        presentScanMatch(normalized);
         scheduleScanLoop(900);
         return;
       }
@@ -2771,7 +2806,7 @@ function stopOcrLoop(){
 }
 function presentScanMatch(code){
   if(!scanCtx) return;
-  const normalized = code.trim();
+  const normalized = normalizeSerialCandidate(code.trim());
   if(!normalized){
     scheduleScanLoop(200);
     return;
@@ -2950,17 +2985,18 @@ function startZXingLoop(){
     if(zxingReader){
       zxingReader.reset();
     } else {
-      zxingReader = new window.ZXing.BrowserMultiFormatReader();
+    zxingReader = new window.ZXing.BrowserMultiFormatReader();
+  }
+  zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
+    if(!scanActive || scanPaused){
+      return;
     }
-    zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
-      if(!scanActive || scanPaused){
-        return;
+    if(result){
+      const payload = result.getText?.() || result.text || "";
+      if(payload){
+        const normalized = extractSerialFromPayload(payload) || payload;
+        presentScanMatch(normalized);
       }
-      if(result){
-        const value = result.getText?.() || result.text || "";
-        if(value){
-          presentScanMatch(value);
-        }
       } else if(err && !(err instanceof window.ZXing.NotFoundException)){
         console.warn("ZXing decode error", err);
       }
