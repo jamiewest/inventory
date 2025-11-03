@@ -425,7 +425,7 @@
       <div class="form-grid">
         <div>
           <label>ID *</label>
-          <input id="fb_id" class="input" placeholder="required"/>
+          <input id="fb_id" class="input" placeholder="optional"/>
         </div>
         <div>
           <label>Serial Number</label>
@@ -781,6 +781,7 @@
 <script id="bs-js-2" src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js" defer disabled></script>
 <script id="bs-js-3" src="https://unpkg.com/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer disabled></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.2/umd/index.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js" defer></script>
 
 <script>
 // ===== Bootstrap load watchdog & fallbacks =====
@@ -2580,6 +2581,60 @@ let zxingReader = null;
 let zxingActive = false;
 const ignoredCodes = new Set();
 let lastScanContext = null;
+let ocrLoopTimer = null;
+let tesseractBusy = false;
+let ocrCanvas = null;
+let ocrCtx = null;
+async function detectSerialFromFrame(video){
+  if(!video || !window.Tesseract) return [];
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+  if(!width || !height) return [];
+  if(width < 120 || height < 90){
+    return [];
+  }
+  const cropWidth = Math.floor(width * 0.65);
+  const cropHeight = Math.floor(height * 0.5);
+  const sx = Math.max(0, Math.floor((width - cropWidth) / 2));
+  const sy = Math.max(0, Math.floor((height - cropHeight) / 2));
+  const aspect = cropHeight / cropWidth || 0.75;
+  const targetWidth = Math.max(360, Math.floor(cropWidth * 1.8));
+  const targetHeight = Math.max(220, Math.floor(targetWidth * aspect));
+  const ctx = ensureOcrCanvas(targetWidth, targetHeight);
+  if(!ctx) return [];
+  ctx.drawImage(video, sx, sy, cropWidth, cropHeight, 0, 0, ocrCanvas.width, ocrCanvas.height);
+  try {
+    const imageData = ctx.getImageData(0, 0, ocrCanvas.width, ocrCanvas.height);
+    const data = imageData.data;
+    let sum = 0;
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+      sum += lum;
+      data[i] = data[i+1] = data[i+2] = lum;
+    }
+    const avg = sum / (data.length/4);
+    const threshold = avg * 0.9;
+    for(let i=0;i<data.length;i+=4){
+      const val = data[i] > threshold ? 255 : 0;
+      data[i] = data[i+1] = data[i+2] = val;
+      data[i+3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  } catch(err){
+    console.warn('OCR preprocessing failed', err);
+  }
+  try {
+    const { data } = await window.Tesseract.recognize(ocrCanvas, 'eng', {
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    });
+    const text = data?.text ?? '';
+    return extractSerialCandidates(text);
+  } catch(err){
+    console.warn('Tesseract recognize failed', err);
+    return [];
+  }
+}
 
 function getScanCtx(useFallback){ return useFallback ? scanContexts.fallback : scanContexts.modal; }
 function setScanStatusMessage(message, variant="info"){
@@ -2625,6 +2680,32 @@ function extractBarcodeValue(results){
   }
   return "";
 }
+function extractSerialCandidates(text){
+  if(!text) return [];
+  const uppercase = text.toUpperCase();
+  const matches = uppercase.match(/\b[A-Z0-9]{7}\b/g);
+  if(!matches) return [];
+  // Dell serials usually omit I/O/Q; filter obvious noise (all digits or repeated chars)
+  return matches.filter(code => {
+    const uniqueChars = new Set(code.split(""));
+    return uniqueChars.size >= 3;
+  });
+}
+function ensureOcrCanvas(width, height){
+  if(!ocrCanvas){
+    ocrCanvas = document.createElement('canvas');
+    ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true }) || ocrCanvas.getContext('2d');
+  }
+  const minWidth = 320;
+  const minHeight = 200;
+  const w = Math.max(minWidth, Math.floor(width));
+  const h = Math.max(minHeight, Math.floor(height));
+  if(ocrCanvas.width !== w || ocrCanvas.height !== h){
+    ocrCanvas.width = w;
+    ocrCanvas.height = h;
+  }
+  return ocrCtx;
+}
 function scheduleScanLoop(delay=300){
   clearTimeout(scanLoopTimer);
   if(zxingActive) return;
@@ -2653,6 +2734,40 @@ function scheduleScanLoop(delay=300){
     }
     scheduleScanLoop(200);
   }, delay);
+}
+function startOcrLoop(){
+  if(ocrLoopTimer || !window.Tesseract) return;
+  const run = async ()=>{
+    if(!scanActive || scanPaused || !scanCtx || !scanCtx.video){
+      ocrLoopTimer = setTimeout(run, 500);
+      return;
+    }
+    if(!tesseractBusy){
+      tesseractBusy = true;
+      try {
+        const candidates = await detectSerialFromFrame(scanCtx.video);
+        if(candidates && candidates.length){
+          for(const code of candidates){
+            if(ignoredCodes.has(code.toLowerCase())) continue;
+            presentScanMatch(code);
+            break;
+          }
+        }
+      } catch(err){
+        console.warn('OCR loop failed', err);
+      } finally {
+        tesseractBusy = false;
+      }
+    }
+    const nextDelay = scanPaused ? 800 : 600;
+    ocrLoopTimer = setTimeout(run, nextDelay);
+  };
+  ocrLoopTimer = setTimeout(run, 800);
+}
+function stopOcrLoop(){
+  clearTimeout(ocrLoopTimer);
+  ocrLoopTimer = null;
+  tesseractBusy = false;
 }
 function presentScanMatch(code){
   if(!scanCtx) return;
@@ -2777,6 +2892,10 @@ async function startScanner(useFallback){
       setScanStatusMessage("Using ZXing fallback decoder.", "info");
       startZXingLoop();
     }
+    if(!window.Tesseract){
+      console.warn('Tesseract.js not available; OCR disabled.');
+    }
+    startOcrLoop();
   } catch(err){
     console.error("Camera initialization failed", err);
     setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
@@ -2798,6 +2917,7 @@ function stopScanner(){
   scanLoopTimer = null;
   scanActive = false;
   scanPaused = false;
+  stopOcrLoop();
   if(scanStream){
     scanStream.getTracks().forEach(track => track.stop());
     scanStream = null;
@@ -3117,7 +3237,15 @@ async function showAddModal(defaults={}){
 openAdd.addEventListener("click", ()=>{ showAddModal(); });
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
 if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
-  const id = norm(fb_id.value); if(!id){ alert("ID is required."); return; }
+  let id = norm(fb_id.value);
+  if(!id){
+    id = norm(fb_serial_number?.value) || norm(fb_asset_tag?.value);
+  }
+  if(!id){
+    alert("Provide at least a serial number or asset tag.");
+    (fb_serial_number || fb_asset_tag || fb_id)?.focus();
+    return;
+  }
   const status = norm(fb_status.value) || norm(fb_status_custom.value);
   const row = {
     id,
@@ -3134,7 +3262,15 @@ if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
 }); }
 
 if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
-  const id = norm(m_id.value); if(!id){ alert("ID is required."); return; }
+  let id = norm(m_id.value);
+  if(!id){
+    id = norm(m_serial_number?.value) || norm(m_asset_tag?.value);
+  }
+  if(!id){
+    alert("Provide at least a serial number or asset tag.");
+    (m_serial_number || m_asset_tag || m_id)?.focus();
+    return;
+  }
   const status = norm(m_status.value) || norm(m_status_custom.value);
   const row = {
     id,
@@ -3228,6 +3364,12 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
       const input = JSON.stringify([{ note:"Check" }]);
       const output = formatMetaForView(input);
       assert(output.trim().startsWith("["), "Expected array output");
+    });
+    addTest("extractSerialCandidates finds Dell format", ()=>{
+      const text = "Test ABC1234 and def5678";
+      const matches = extractSerialCandidates(text);
+      assert(matches.includes("ABC1234"), "Expected ABC1234 present");
+      assert(matches.includes("DEF5678"), "Expected DEF5678 present");
     });
     addTest("findRowBySerial handles empty values", ()=>{
       assert(findRowBySerial("") === null, "Expected null for empty serial.");
