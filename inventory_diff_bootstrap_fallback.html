@@ -2831,6 +2831,7 @@ if(openScannerBtn){
     if(scanModalEl && window.bootstrap){
       const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
       modal.show();
+      setTimeout(()=> startScanner(false), 200);
     } else if(scanFallbackEl){
       scanFallbackEl.classList.add('show');
       startScanner(true);
