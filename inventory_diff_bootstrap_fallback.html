@@ -368,10 +368,6 @@
       <div class="modal-body">
         <div class="row g-3">
           <div class="col-12 col-md-6">
-            <label for="m_id" class="form-label">ID *</label>
-            <input id="m_id" class="form-control" placeholder="required"/>
-          </div>
-          <div class="col-12 col-md-6">
             <label for="m_serial_number" class="form-label">Serial Number</label>
             <input id="m_serial_number" class="form-control" placeholder="optional"/>
           </div>
@@ -423,10 +419,6 @@
     <header><strong>Add Asset</strong></header>
     <div class="content">
       <div class="form-grid">
-        <div>
-          <label>ID *</label>
-          <input id="fb_id" class="input" placeholder="optional"/>
-        </div>
         <div>
           <label>Serial Number</label>
           <input id="fb_serial_number" class="input" placeholder="optional"/>
@@ -556,10 +548,6 @@
           <form id="viewAssetForm" autocomplete="off" novalidate>
             <p class="small text-secondary mb-2">Edit mode is active. Update the fields below and select “Save changes”.</p>
             <div class="row g-3">
-              <div class="col-12 col-md-6">
-                <label for="view_edit_id" class="form-label">Record ID</label>
-                <input id="view_edit_id" class="form-control" type="text" placeholder="optional"/>
-              </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_serial_number" class="form-label">Serial Number</label>
                 <input id="view_edit_serial_number" class="form-control" type="text"/>
@@ -1222,7 +1210,6 @@ const viewModalSaveBtn = document.getElementById("viewAssetSave");
 const viewModalStatusSelect = document.getElementById("view_edit_status");
 const viewModalStatusCustom = document.getElementById("view_edit_status_custom");
 const viewFormInputs = {
-  id: document.getElementById("view_edit_id"),
   serial_number: document.getElementById("view_edit_serial_number"),
   asset_tag: document.getElementById("view_edit_asset_tag"),
   type: document.getElementById("view_edit_type"),
@@ -1237,7 +1224,15 @@ let viewEditModeActive = false;
 if(viewModalEl && window.bootstrap){
   viewModalInstance = new bootstrap.Modal(viewModalEl);
 }
-function rowToObj(tr){ const tds = Array.from(tr.querySelectorAll("td[data-k]")); const obj = {}; tds.forEach(td => obj[td.dataset.k] = td.textContent.trim()); return obj; }
+function rowToObj(tr){
+  const tds = Array.from(tr.querySelectorAll("td[data-k]"));
+  const obj = {};
+  tds.forEach(td => obj[td.dataset.k] = td.textContent.trim());
+  if(tr?.dataset?.id){
+    obj.id = tr.dataset.id;
+  }
+  return obj;
+}
 function objToRow(obj){
   const tr = document.createElement("tr");
   if(obj && obj.id !== undefined) tr.dataset.id = obj.id;
@@ -1447,14 +1442,16 @@ function toggleViewEditMode(enabled){
   if(viewModalSaveBtn){
     viewModalSaveBtn.classList.toggle("d-none", !viewEditModeActive);
   }
-  if(viewEditModeActive && viewFormInputs.id){
-    setTimeout(()=> viewFormInputs.id.focus(), 120);
+  if(viewEditModeActive){
+    const target = viewFormInputs.serial_number || viewFormInputs.asset_tag;
+    if(target){
+      setTimeout(()=> target.focus(), 120);
+    }
   }
 }
 function populateViewForm(row){
   if(!row) return;
   const data = rowToObj(row);
-  if(viewFormInputs.id) viewFormInputs.id.value = data.id ?? "";
   if(viewFormInputs.serial_number) viewFormInputs.serial_number.value = data.serial_number ?? "";
   if(viewFormInputs.asset_tag) viewFormInputs.asset_tag.value = data.asset_tag ?? "";
   if(viewFormInputs.type) viewFormInputs.type.value = data.type ?? "";
@@ -1486,17 +1483,23 @@ function getFormStatusValue(){
 }
 async function applyViewFormChanges(){
   if(!currentViewRow) return;
-  const idInput = viewFormInputs.id;
-  const idValue = norm(idInput?.value);
+  const serialValue = norm(viewFormInputs.serial_number?.value);
+  const assetValue = norm(viewFormInputs.asset_tag?.value);
+  const existingId = norm(currentViewRow.dataset?.id);
+  const idValue = serialValue || assetValue || existingId;
   if(!idValue){
-    alert("ID is required.");
-    if(idInput) idInput.focus();
+    alert("Provide at least a serial number or asset tag.");
+    if(viewFormInputs.serial_number){
+      viewFormInputs.serial_number.focus();
+    } else if(viewFormInputs.asset_tag){
+      viewFormInputs.asset_tag.focus();
+    }
     return;
   }
   const updates = {
     id: idValue,
-    serial_number: norm(viewFormInputs.serial_number?.value),
-    asset_tag: norm(viewFormInputs.asset_tag?.value),
+    serial_number: serialValue,
+    asset_tag: assetValue,
     type: norm(viewFormInputs.type?.value),
     model: norm(viewFormInputs.model?.value),
     room: norm(viewFormInputs.room?.value),
@@ -1515,7 +1518,11 @@ async function applyViewFormChanges(){
       cell.textContent = updates[key] ?? "";
     }
   }
-  currentViewRow.dataset.id = updates.id;
+  if(updates.id){
+    currentViewRow.dataset.id = updates.id;
+  } else {
+    delete currentViewRow.dataset.id;
+  }
   updateMetaButtonState(currentViewRow);
   updateNoteButtonState(currentViewRow);
   renderViewAsset(currentViewRow);
@@ -1526,7 +1533,9 @@ async function applyViewFormChanges(){
     await saveLocalToIDB();
     showSavedToast();
     updateLastSaved();
-    const label = updates.id ? `Record ${updates.id}` : (updates.serial_number ? `Serial ${updates.serial_number}` : "Record");
+    const label = updates.serial_number
+      ? `Serial ${updates.serial_number}`
+      : (updates.asset_tag ? `Asset tag ${updates.asset_tag}` : (updates.id ? `Record ${updates.id}` : "Record"));
     setStatus("localImportStatus", `${label} updated.`, "success");
     toggleViewEditMode(false);
   } catch(err){
@@ -2262,7 +2271,6 @@ const confirmAdd = document.getElementById('confirmAdd');
 const addModalEl = document.getElementById('addModal');
 const fbModalEl = document.getElementById('fallbackModal');
 
-const m_id = document.getElementById('m_id');
 const m_serial_number = document.getElementById('m_serial_number');
 const m_asset_tag = document.getElementById('m_asset_tag');
 const m_type = document.getElementById('m_type');
@@ -2273,7 +2281,6 @@ const m_status = document.getElementById('m_status');
 const m_status_custom = document.getElementById('m_status_custom');
 const m_meta = document.getElementById('m_meta');
 
-const fb_id = document.getElementById('fb_id');
 const fb_serial_number = document.getElementById('fb_serial_number');
 const fb_asset_tag = document.getElementById('fb_asset_tag');
 const fb_type = document.getElementById('fb_type');
@@ -3418,8 +3425,14 @@ async function showAddModal(defaults={}){
   const metaValue = typeof defaults.meta === "string"
     ? defaults.meta
     : (defaults.meta ? JSON.stringify(defaults.meta, null, 2) : "");
+
+  const applyStatus = (selectEl, customEl)=>{
+    const hasStatus = statusValue && statusesList.includes(statusValue);
+    if(selectEl) selectEl.value = hasStatus ? statusValue : "";
+    if(customEl) customEl.value = hasStatus ? "" : statusValue;
+  };
+
   const applyToBootstrap = ()=>{
-    if(m_id) m_id.value = defaults.id ?? "";
     if(m_serial_number) m_serial_number.value = defaults.serial_number ?? "";
     if(m_asset_tag) m_asset_tag.value = defaults.asset_tag ?? "";
     if(m_type) m_type.value = defaults.type ?? "";
@@ -3427,16 +3440,10 @@ async function showAddModal(defaults={}){
     if(m_room) m_room.value = defaults.room ?? "";
     if(m_assigned_to) m_assigned_to.value = defaults.assigned_to ?? "";
     if(m_meta) m_meta.value = metaValue;
-    if(m_status){
-      const hasStatus = statusValue && statusesList.includes(statusValue);
-      m_status.value = hasStatus ? statusValue : "";
-      if(m_status_custom){
-        m_status_custom.value = hasStatus ? "" : statusValue;
-      }
-    }
+    applyStatus(m_status, m_status_custom);
   };
+
   const applyToFallback = ()=>{
-    if(fb_id) fb_id.value = defaults.id ?? "";
     if(fb_serial_number) fb_serial_number.value = defaults.serial_number ?? "";
     if(fb_asset_tag) fb_asset_tag.value = defaults.asset_tag ?? "";
     if(fb_type) fb_type.value = defaults.type ?? "";
@@ -3444,21 +3451,20 @@ async function showAddModal(defaults={}){
     if(fb_room) fb_room.value = defaults.room ?? "";
     if(fb_assigned_to) fb_assigned_to.value = defaults.assigned_to ?? "";
     if(fb_meta) fb_meta.value = metaValue;
-    const hasStatus = statusValue && statusesList.includes(statusValue);
-    if(fb_status) fb_status.value = hasStatus ? statusValue : "";
-    if(fb_status_custom) fb_status_custom.value = hasStatus ? "" : statusValue;
+    applyStatus(fb_status, fb_status_custom);
   };
+
+  const focusSerial = (el)=> setTimeout(()=> el?.focus(), 150);
+
   if(window.bootstrap && addModalEl){
     applyToBootstrap();
     const modal = bootstrap.Modal.getOrCreateInstance(addModalEl);
     modal.show();
-    const focusTarget = defaults.focus === "serial" ? m_serial_number : m_id;
-    setTimeout(()=> focusTarget?.focus(), 150);
+    focusSerial(m_serial_number || m_asset_tag);
   } else if(fbModalEl){
     applyToFallback();
     fbModalEl.classList.add('show');
-    const focusTarget = defaults.focus === "serial" ? fb_serial_number : fb_id;
-    setTimeout(()=> focusTarget?.focus(), 150);
+    focusSerial(fb_serial_number || fb_asset_tag);
   } else {
     setStatus("localImportStatus", "Add asset UI unavailable in this environment.", "error");
   }
@@ -3467,20 +3473,19 @@ async function showAddModal(defaults={}){
 openAdd.addEventListener("click", ()=>{ showAddModal(); });
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
 if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
-  let id = norm(fb_id.value);
-  if(!id){
-    id = norm(fb_serial_number?.value) || norm(fb_asset_tag?.value);
-  }
+  const serialValue = norm(fb_serial_number?.value);
+  const assetValue = norm(fb_asset_tag?.value);
+  const id = serialValue || assetValue;
   if(!id){
     alert("Provide at least a serial number or asset tag.");
-    (fb_serial_number || fb_asset_tag || fb_id)?.focus();
+    (fb_serial_number || fb_asset_tag)?.focus();
     return;
   }
   const status = norm(fb_status.value) || norm(fb_status_custom.value);
   const row = {
     id,
-    serial_number: norm(fb_serial_number?.value),
-    asset_tag: norm(fb_asset_tag?.value),
+    serial_number: serialValue,
+    asset_tag: assetValue,
     type: norm(fb_type?.value),
     model: norm(fb_model?.value),
     room: norm(fb_room?.value),
@@ -3492,20 +3497,19 @@ if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
 }); }
 
 if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
-  let id = norm(m_id.value);
-  if(!id){
-    id = norm(m_serial_number?.value) || norm(m_asset_tag?.value);
-  }
+  const serialValue = norm(m_serial_number?.value);
+  const assetValue = norm(m_asset_tag?.value);
+  const id = serialValue || assetValue;
   if(!id){
     alert("Provide at least a serial number or asset tag.");
-    (m_serial_number || m_asset_tag || m_id)?.focus();
+    (m_serial_number || m_asset_tag)?.focus();
     return;
   }
   const status = norm(m_status.value) || norm(m_status_custom.value);
   const row = {
     id,
-    serial_number: norm(m_serial_number?.value),
-    asset_tag: norm(m_asset_tag?.value),
+    serial_number: serialValue,
+    asset_tag: assetValue,
     type: norm(m_type?.value),
     model: norm(m_model?.value),
     room: norm(m_room?.value),
