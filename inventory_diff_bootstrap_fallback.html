@@ -3437,9 +3437,8 @@ async function startScanner(useFallback){
     }
     if(!scanDetector){
       setScanStatusMessage("Barcode detector unavailable. Using ZXing fallback.", "info");
-      scheduleScanLoop(350);
+      startZXingLoop().catch(err => console.error('ZXing loop failed', err));
     }
-    startZXingLoop().catch(err => console.error('ZXing loop failed', err));
   } catch(err){
     console.error("Camera initialization failed", err);
     setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
