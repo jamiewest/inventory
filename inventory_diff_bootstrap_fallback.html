@@ -2579,6 +2579,7 @@ let currentScanRow = null;
 let currentScanCode = "";
 let zxingReader = null;
 let zxingActive = false;
+let pendingPayloads = [];
 const ignoredCodes = new Set();
 let lastScanContext = null;
 let ocrLoopTimer = null;
@@ -2745,6 +2746,16 @@ function scheduleScanLoop(delay=300){
   if(zxingActive) return;
   if(!scanActive || scanPaused || !scanDetector || !scanCtx || !scanCtx.video) return;
   scanLoopTimer = setTimeout(async ()=>{
+    if(pendingPayloads.length){
+      const payload = pendingPayloads.shift();
+      const normalized = extractSerialFromPayload(payload) || payload.trim();
+      if(normalized){
+        presentScanMatch(normalized);
+        scheduleScanLoop(900);
+        return;
+      }
+    }
+
     if(!scanActive || !scanDetector || !scanCtx || !scanCtx.video){
       return;
     }
@@ -2756,10 +2767,13 @@ function scheduleScanLoop(delay=300){
       const results = await scanDetector.detect(scanCtx.video);
       const value = extractBarcodeValue(results);
       if(value){
-        const normalized = extractSerialFromPayload(value) || value.trim();
-        presentScanMatch(normalized);
-        scheduleScanLoop(900);
-        return;
+        const normalized = extractSerialFromPayload(value);
+        if(normalized){
+          presentScanMatch(normalized);
+          scheduleScanLoop(900);
+          return;
+        }
+        pendingPayloads.push(value);
       }
     } catch(err){
       console.warn("Barcode detection failed", err);
@@ -2987,16 +3001,20 @@ function startZXingLoop(){
     } else {
     zxingReader = new window.ZXing.BrowserMultiFormatReader();
   }
-  zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
-    if(!scanActive || scanPaused){
-      return;
-    }
-    if(result){
-      const payload = result.getText?.() || result.text || "";
-      if(payload){
-        const normalized = extractSerialFromPayload(payload) || payload;
-        presentScanMatch(normalized);
+    zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
+      if(!scanActive || scanPaused){
+        return;
       }
+      if(result){
+        const payload = result.getText?.() || result.text || "";
+        if(payload){
+          const normalized = extractSerialFromPayload(payload);
+          if(normalized){
+            presentScanMatch(normalized);
+          } else {
+            pendingPayloads.push(payload);
+          }
+        }
       } else if(err && !(err instanceof window.ZXing.NotFoundException)){
         console.warn("ZXing decode error", err);
       }
