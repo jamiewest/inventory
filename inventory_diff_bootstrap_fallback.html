@@ -780,7 +780,8 @@
 <!-- Secondary Bootstrap Bundles (disabled initially) -->
 <script id="bs-js-2" src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js" defer disabled></script>
 <script id="bs-js-3" src="https://unpkg.com/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer disabled></script>
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.2/umd/index.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js" defer></script>
 
 <script>
@@ -2580,12 +2581,49 @@ let currentScanCode = "";
 let zxingReader = null;
 let zxingActive = false;
 let pendingPayloads = [];
+let qrCanvas = null;
+let qrCtx = null;
 const ignoredCodes = new Set();
 let lastScanContext = null;
 let ocrLoopTimer = null;
 let tesseractBusy = false;
 let ocrCanvas = null;
 let ocrCtx = null;
+function ensureQrCanvas(width, height){
+  if(!qrCanvas){
+    qrCanvas = document.createElement('canvas');
+    qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true }) || qrCanvas.getContext('2d');
+  }
+  const w = Math.max(1, Math.floor(width));
+  const h = Math.max(1, Math.floor(height));
+  if(qrCanvas.width !== w || qrCanvas.height !== h){
+    qrCanvas.width = w;
+    qrCanvas.height = h;
+  }
+  return qrCtx;
+}
+function detectQrFromFrame(video){
+  if(!video || !window.jsQR) return null;
+  const width = video.videoWidth || video.clientWidth;
+  const height = video.videoHeight || video.clientHeight;
+  if(!width || !height) return null;
+  const cropWidth = Math.floor(width * 0.7);
+  const cropHeight = Math.floor(height * 0.7);
+  const sx = Math.max(0, Math.floor((width - cropWidth) / 2));
+  const sy = Math.max(0, Math.floor((height - cropHeight) / 2));
+  const ctx = ensureQrCanvas(cropWidth, cropHeight);
+  ctx.drawImage(video, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  try {
+    const imageData = ctx.getImageData(0, 0, cropWidth, cropHeight);
+    const result = window.jsQR(imageData.data, cropWidth, cropHeight, { inversionAttempts: 'attemptBoth' });
+    if(result && result.data){
+      return result.data;
+    }
+  } catch(err){
+    console.warn('jsQR detection failed', err);
+  }
+  return null;
+}
 async function detectSerialFromFrame(video){
   if(!video || !window.Tesseract) return [];
   const width = video.videoWidth || video.clientWidth;
@@ -2773,6 +2811,19 @@ function scheduleScanLoop(delay=300){
       }
     }
 
+    if(scanCtx?.video){
+      const qrPayload = detectQrFromFrame(scanCtx.video);
+      if(qrPayload){
+        const normalizedQr = extractSerialFromPayload(qrPayload);
+        if(normalizedQr){
+          presentScanMatch(normalizedQr);
+          scheduleScanLoop(900);
+          return;
+        }
+        pendingPayloads.push(qrPayload);
+      }
+    }
+
     if(!scanActive || !scanDetector || !scanCtx || !scanCtx.video){
       return;
     }
@@ -2790,7 +2841,7 @@ function scheduleScanLoop(delay=300){
           scheduleScanLoop(900);
           return;
         }
-        pendingPayloads.push(value);
+        pendingPayloads.push(value.trim());
       }
     } catch(err){
       console.warn("Barcode detection failed", err);
@@ -3001,6 +3052,7 @@ function stopScanner(){
     ctx.stop.disabled = false;
   }
   lastScanContext = ctx;
+  pendingPayloads.length = 0;
   scanCtx = null;
 }
 function startZXingLoop(){
@@ -3029,7 +3081,7 @@ function startZXingLoop(){
           if(normalized){
             presentScanMatch(normalized);
           } else {
-            pendingPayloads.push(payload);
+            pendingPayloads.push((payload || '').trim());
           }
         }
       } else if(err && !(err instanceof window.ZXing.NotFoundException)){
