@@ -3439,7 +3439,7 @@ async function startScanner(useFallback){
       setScanStatusMessage("Barcode detector unavailable. Using ZXing fallback.", "info");
       scheduleScanLoop(350);
     }
-    startZXingLoop();
+    startZXingLoop().catch(err => console.error('ZXing loop failed', err));
   } catch(err){
     console.error("Camera initialization failed", err);
     setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
@@ -3487,7 +3487,7 @@ function stopScanner(){
   scanCtx = null;
   updateZoomStatus();
 }
-function startZXingLoop(){
+async function startZXingLoop(){
   if(!scanCtx || !scanCtx.video){
     setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
     return;
@@ -3507,23 +3507,71 @@ function startZXingLoop(){
       setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
       return;
     }
-    zxingReader.decodeFromVideoElementContinuously(videoEl, (result, err)=>{
-      if(!scanActive || scanPaused){
+    const formats = [
+      window.ZXing.BarcodeFormat.QR_CODE,
+      window.ZXing.BarcodeFormat.CODE_128,
+      window.ZXing.BarcodeFormat.CODE_39,
+      window.ZXing.BarcodeFormat.CODE_93,
+      window.ZXing.BarcodeFormat.EAN_13,
+      window.ZXing.BarcodeFormat.EAN_8,
+      window.ZXing.BarcodeFormat.UPC_A,
+      window.ZXing.BarcodeFormat.UPC_E,
+      window.ZXing.BarcodeFormat.ITF,
+      window.ZXing.BarcodeFormat.DATA_MATRIX,
+      window.ZXing.BarcodeFormat.AZTEC
+    ].filter(Boolean);
+    const hints = new Map();
+    if(window.ZXing.DecodeHintType && formats.length){
+      hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    }
+    if(window.ZXing.DecodeHintType && window.ZXing.DecodeHintType.TRY_HARDER){
+      hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+    }
+    if(typeof zxingReader.setHints === "function" && hints.size){
+      zxingReader.setHints(hints);
+    }
+    const waitForVideo = ()=> new Promise(resolve => {
+      if(videoEl.readyState >= 2 && (videoEl.videoWidth || videoEl.clientWidth)){
+        resolve();
         return;
       }
-      if(result){
-        const payload = result.getText?.() || result.text || "";
-        if(payload){
-          const normalized = extractSerialFromPayload(payload);
-          const candidate = normalized || (payload || '').trim();
-          if(candidate){
-            presentScanMatch(candidate);
+      const onReady = ()=>{
+        videoEl.removeEventListener('loadeddata', onReady);
+        resolve();
+      };
+      videoEl.addEventListener('loadeddata', onReady, { once:true });
+    });
+    await waitForVideo();
+    if(typeof zxingReader.timeBetweenDecodingAttempts === "number"){
+      zxingReader.timeBetweenDecodingAttempts = 150;
+    }
+    const decodeLoop = async ()=>{
+      if(!scanActive){
+        return;
+      }
+      try {
+        const result = await zxingReader.decodeFromVideoElement(videoEl);
+        if(result && !scanPaused){
+          const payload = result.getText?.() || result.text || "";
+          if(payload){
+            const normalized = extractSerialFromPayload(payload);
+            const candidate = normalized || (payload || '').trim();
+            if(candidate){
+              presentScanMatch(candidate);
+            }
           }
         }
-      } else if(err && !(err instanceof window.ZXing.NotFoundException)){
-        console.warn("ZXing decode error", err);
+      } catch(err){
+        if(err && !(err instanceof window.ZXing.NotFoundException)){
+          console.warn("ZXing decode error", err);
+        }
+      } finally {
+        if(scanActive){
+          requestAnimationFrame(decodeLoop);
+        }
       }
-    });
+    };
+    requestAnimationFrame(decodeLoop);
     zxingActive = true;
     setScanStatusMessage("Point the camera at a barcode. Hold steady to detect.", "info");
   } catch(err){
@@ -3618,13 +3666,17 @@ function handleManualLookup(inputValue){
 function openScannerModal(){
   if(scanModalEl && window.bootstrap){
     const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
-    modal.show();
-    const handler = ()=>{
-      scanModalEl.removeEventListener('shown.bs.modal', handler);
-      startScanner(false);
-    };
-    scanModalEl.addEventListener('shown.bs.modal', handler, { once:true });
-    modal.show();
+    const start = ()=> startScanner(false);
+    if(scanModalEl.classList.contains('show')){
+      start();
+    } else {
+      const handler = ()=>{
+        scanModalEl.removeEventListener('shown.bs.modal', handler);
+        start();
+      };
+      scanModalEl.addEventListener('shown.bs.modal', handler, { once:true });
+      modal.show();
+    }
     return;
   }
   if(scanFallbackEl){
@@ -3858,7 +3910,7 @@ function wirePrimaryButtons(){
   if(addBtn && !addBtn.dataset.wired){
     addBtn.addEventListener("click", ev=>{
       ev.preventDefault();
-      showAddModal();
+      showAddModal().catch(err => console.error('Show add modal failed', err));
     });
     addBtn.dataset.wired = "1";
   }
@@ -3866,7 +3918,12 @@ function wirePrimaryButtons(){
   if(scanBtn && !scanBtn.dataset.wired){
     scanBtn.addEventListener("click", ev=>{
       ev.preventDefault();
-      openScannerModal();
+      try {
+        openScannerModal();
+      } catch(err){
+        console.error('Open scanner failed', err);
+        setStatus("localImportStatus", `Scanner unavailable: ${err.message}`, "error");
+      }
     });
     scanBtn.dataset.wired = "1";
   }
@@ -3878,10 +3935,15 @@ document.addEventListener("click", ev=>{
   if(!target) return;
   if(target.closest && target.closest('#openAdd')){
     ev.preventDefault();
-    showAddModal();
+    showAddModal().catch(err => console.error('Show add modal failed', err));
   } else if(target.closest && target.closest('#openScanner')){
     ev.preventDefault();
-    openScannerModal();
+    try {
+      openScannerModal();
+    } catch(err){
+      console.error('Open scanner failed', err);
+      setStatus("localImportStatus", `Scanner unavailable: ${err.message}`, "error");
+    }
   }
 });
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
