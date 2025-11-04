@@ -261,8 +261,8 @@
               <h5 class="mb-0">Inventory</h5>
             </div>
             <div class="header-actions">
-              <button class="btn btn-primary btn-sm" type="button" id="openAdd" onclick="return openAddFromButton(event);">Add asset</button>
-              <button class="btn btn-outline-success btn-sm" type="button" id="openScanner" onclick="return openScannerFromButton(event);">Scan barcode</button>
+              <button class="btn btn-primary btn-sm" type="button" id="openAdd">Add asset</button>
+              <button class="btn btn-outline-success btn-sm" type="button" id="openScanner">Scan barcode</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
             </div>
           </div>
@@ -2881,7 +2881,6 @@ let activeFacingMode = 'environment';
 let activeZoomLevel = 0;
 let cameraCapabilities = {};
 let activeVideoTrack = null;
-let scanStartTimer = null;
 let zoomRange = null;
 const FRONT_ZOOM_LIMIT = 0.4;
 async function configureCameraTrack(track){
@@ -3343,10 +3342,6 @@ function presentScanMatch(code){
   scanPaused = true;
 }
 async function startScanner(useFallback){
-  if(scanStartTimer){
-    clearTimeout(scanStartTimer);
-    scanStartTimer = null;
-  }
   stopScanner();
   scanCtx = getScanCtx(useFallback);
   lastScanContext = scanCtx;
@@ -3415,7 +3410,9 @@ async function startScanner(useFallback){
     }
     if(scanCtx.video){
       scanCtx.video.srcObject = scanStream;
-      await scanCtx.video.play().catch(()=>{});
+      if(scanCtx.video.paused || scanCtx.video.readyState < 2){
+        await scanCtx.video.play().catch(err => console.warn('Video play failed', err));
+      }
     }
     scanActive = true;
     scanPaused = false;
@@ -3462,10 +3459,6 @@ function stopScanner(){
   const ctx = scanCtx || lastScanContext;
   clearTimeout(scanLoopTimer);
   scanLoopTimer = null;
-  if(scanStartTimer){
-    clearTimeout(scanStartTimer);
-    scanStartTimer = null;
-  }
   scanActive = false;
   scanPaused = false;
   stopOcrLoop();
@@ -3626,20 +3619,12 @@ function openScannerModal(){
   if(scanModalEl && window.bootstrap){
     const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
     modal.show();
-    const start = ()=>{
-      scanStartTimer = null;
+    const handler = ()=>{
+      scanModalEl.removeEventListener('shown.bs.modal', handler);
       startScanner(false);
     };
-    if(modal._isShown || modal._isShown === undefined){
-      // Bootstraps 5 exposes _isShown; fall back to timeout otherwise
-      start();
-    } else {
-      const handler = ()=>{
-        scanModalEl.removeEventListener('shown.bs.modal', handler);
-        start();
-      };
-      scanModalEl.addEventListener('shown.bs.modal', handler, { once:true });
-    }
+    scanModalEl.addEventListener('shown.bs.modal', handler, { once:true });
+    modal.show();
     return;
   }
   if(scanFallbackEl){
@@ -3800,22 +3785,6 @@ document.querySelectorAll('#localTable thead th[data-sort]').forEach(th => {
   });
 });
 
-function openAddFromButton(ev){
-  if(ev && typeof ev.preventDefault === "function") ev.preventDefault();
-  showAddModal().catch(err => console.error('Show add modal failed', err));
-  return false;
-}
-function openScannerFromButton(ev){
-  if(ev && typeof ev.preventDefault === "function") ev.preventDefault();
-  try {
-    openScannerModal();
-  } catch(err){
-    console.error('Open scanner failed', err);
-    setStatus("localImportStatus", `Scanner unavailable: ${err.message}`, "error");
-  }
-  return false;
-}
-
 async function showAddModal(defaults={}){
   let statusesList = [];
   try {
@@ -3904,6 +3873,7 @@ function wirePrimaryButtons(){
 }
 wirePrimaryButtons();
 document.addEventListener("click", ev=>{
+  if(ev.defaultPrevented) return;
   const target = (typeof Element !== "undefined" && ev.target instanceof Element) ? ev.target : (ev.target && ev.target.parentElement ? ev.target.parentElement : null);
   if(!target) return;
   if(target.closest && target.closest('#openAdd')){
