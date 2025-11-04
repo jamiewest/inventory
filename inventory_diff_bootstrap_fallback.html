@@ -3230,6 +3230,20 @@ function scheduleScanLoop(delay=300){
       }
     }
 
+    if(scanCtx?.video){
+      const qrPayload = detectQrFromFrame(scanCtx.video);
+      if(qrPayload){
+        const normalizedQr = extractSerialFromPayload(qrPayload);
+        const candidateQr = normalizedQr || qrPayload.trim();
+        if(candidateQr){
+          presentScanMatch(candidateQr);
+          scheduleScanLoop(900);
+          return;
+        }
+        pendingPayloads.push(qrPayload);
+      }
+    }
+
     if(!scanActive || !scanCtx || !scanCtx.video){
       return;
     }
@@ -3254,21 +3268,6 @@ function scheduleScanLoop(delay=300){
       } catch(err){
         console.warn("Barcode detection failed", err);
         setScanStatusMessage(`Scanning error: ${err.message}`, "error");
-      }
-    } else {
-      // Only use jsQR fallback when native BarcodeDetector is unavailable
-      if(scanCtx?.video){
-        const qrPayload = detectQrFromFrame(scanCtx.video);
-        if(qrPayload){
-          const normalizedQr = extractSerialFromPayload(qrPayload);
-          const candidateQr = normalizedQr || qrPayload.trim();
-          if(candidateQr){
-            presentScanMatch(candidateQr);
-            scheduleScanLoop(900);
-            return;
-          }
-          pendingPayloads.push(qrPayload);
-        }
       }
     }
     scheduleScanLoop(200);
@@ -3438,8 +3437,9 @@ async function startScanner(useFallback){
     }
     if(!scanDetector){
       setScanStatusMessage("Barcode detector unavailable. Using ZXing fallback.", "info");
-      startZXingLoop().catch(err => console.error('ZXing loop failed', err));
+      scheduleScanLoop(350);
     }
+    startZXingLoop();
   } catch(err){
     console.error("Camera initialization failed", err);
     setScanStatusMessage(`Unable to access camera: ${err.message}`, "error");
@@ -3487,7 +3487,7 @@ function stopScanner(){
   scanCtx = null;
   updateZoomStatus();
 }
-async function startZXingLoop(){
+function startZXingLoop(){
   if(!scanCtx || !scanCtx.video){
     setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
     return;
@@ -3502,76 +3502,23 @@ async function startZXingLoop(){
     } else {
       zxingReader = new window.ZXing.BrowserMultiFormatReader();
     }
-    const videoEl = scanCtx.video;
-    if(!videoEl){
-      setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
-      return;
-    }
-    const formats = [
-      window.ZXing.BarcodeFormat.QR_CODE,
-      window.ZXing.BarcodeFormat.CODE_128,
-      window.ZXing.BarcodeFormat.CODE_39,
-      window.ZXing.BarcodeFormat.CODE_93,
-      window.ZXing.BarcodeFormat.EAN_13,
-      window.ZXing.BarcodeFormat.EAN_8,
-      window.ZXing.BarcodeFormat.UPC_A,
-      window.ZXing.BarcodeFormat.UPC_E,
-      window.ZXing.BarcodeFormat.ITF,
-      window.ZXing.BarcodeFormat.DATA_MATRIX,
-      window.ZXing.BarcodeFormat.AZTEC
-    ].filter(Boolean);
-    const hints = new Map();
-    if(window.ZXing.DecodeHintType && formats.length){
-      hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-    }
-    if(window.ZXing.DecodeHintType && window.ZXing.DecodeHintType.TRY_HARDER){
-      hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
-    }
-    if(typeof zxingReader.setHints === "function" && hints.size){
-      zxingReader.setHints(hints);
-    }
-    const waitForVideo = ()=> new Promise(resolve => {
-      if(videoEl.readyState >= 2 && (videoEl.videoWidth || videoEl.clientWidth)){
-        resolve();
+    zxingReader.decodeFromVideoElement(scanCtx.video, (result, err)=>{
+      if(!scanActive || scanPaused){
         return;
       }
-      const onReady = ()=>{
-        videoEl.removeEventListener('loadeddata', onReady);
-        resolve();
-      };
-      videoEl.addEventListener('loadeddata', onReady, { once:true });
-    });
-    await waitForVideo();
-    if(typeof zxingReader.timeBetweenDecodingAttempts === "number"){
-      zxingReader.timeBetweenDecodingAttempts = 150;
-    }
-    const decodeLoop = async ()=>{
-      if(!scanActive){
-        return;
-      }
-      try {
-        const result = await zxingReader.decodeFromVideoElement(videoEl);
-        if(result && !scanPaused){
-          const payload = result.getText?.() || result.text || "";
-          if(payload){
-            const normalized = extractSerialFromPayload(payload);
-            const candidate = normalized || (payload || '').trim();
-            if(candidate){
-              presentScanMatch(candidate);
-            }
+      if(result){
+        const payload = result.getText?.() || result.text || "";
+        if(payload){
+          const normalized = extractSerialFromPayload(payload);
+          const candidate = normalized || (payload || '').trim();
+          if(candidate){
+            presentScanMatch(candidate);
           }
         }
-      } catch(err){
-        if(err && !(err instanceof window.ZXing.NotFoundException)){
-          console.warn("ZXing decode error", err);
-        }
-      } finally {
-        if(scanActive){
-          requestAnimationFrame(decodeLoop);
-        }
+      } else if(err && !(err instanceof window.ZXing.NotFoundException)){
+        console.warn("ZXing decode error", err);
       }
-    };
-    requestAnimationFrame(decodeLoop);
+    });
     zxingActive = true;
     setScanStatusMessage("Point the camera at a barcode. Hold steady to detect.", "info");
   } catch(err){
