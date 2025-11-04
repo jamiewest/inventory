@@ -2871,6 +2871,7 @@ let activeFacingMode = 'environment';
 let activeZoomLevel = 0;
 let cameraCapabilities = {};
 let activeVideoTrack = null;
+let scanStartTimer = null;
 async function configureCameraTrack(track){
   if(!track) return;
   const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -3281,6 +3282,10 @@ function presentScanMatch(code){
   scanPaused = true;
 }
 async function startScanner(useFallback){
+  if(scanStartTimer){
+    clearTimeout(scanStartTimer);
+    scanStartTimer = null;
+  }
   stopScanner();
   scanCtx = getScanCtx(useFallback);
   lastScanContext = scanCtx;
@@ -3322,10 +3327,30 @@ async function startScanner(useFallback){
       scanStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch(err){
       console.warn('Primary camera constraints failed, retrying with defaults', err);
-      scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+      scanStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: activeFacingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
     }
     const videoTrack = scanStream.getVideoTracks()[0];
-    if(videoTrack) await configureCameraTrack(videoTrack);
+    if(videoTrack){
+      await configureCameraTrack(videoTrack);
+      const facing = videoTrack.getSettings?.().facingMode;
+      if(typeof facing === "string" && facing.trim()){
+        const normalizedFacing = facing.toLowerCase();
+        if(normalizedFacing.includes("user") || normalizedFacing.includes("front") || normalizedFacing.includes("face")){
+          activeFacingMode = "user";
+        } else if(normalizedFacing.includes("environment") || normalizedFacing.includes("back") || normalizedFacing.includes("rear") || normalizedFacing.includes("world")){
+          activeFacingMode = "environment";
+        } else {
+          activeFacingMode = normalizedFacing;
+        }
+      }
+    }
     if(scanCtx.video){
       scanCtx.video.srcObject = scanStream;
       await scanCtx.video.play().catch(()=>{});
@@ -3375,6 +3400,10 @@ function stopScanner(){
   const ctx = scanCtx || lastScanContext;
   clearTimeout(scanLoopTimer);
   scanLoopTimer = null;
+  if(scanStartTimer){
+    clearTimeout(scanStartTimer);
+    scanStartTimer = null;
+  }
   scanActive = false;
   scanPaused = false;
   stopOcrLoop();
@@ -3382,12 +3411,15 @@ function stopScanner(){
     scanStream.getTracks().forEach(track => track.stop());
     scanStream = null;
   }
+  activeVideoTrack = null;
+  cameraCapabilities = {};
   if(zxingReader){
     try { zxingReader.reset(); } catch {}
   }
   zxingActive = false;
-  if(scanCtx?.video){
-    scanCtx.video.srcObject = null;
+  const videoEl = scanCtx?.video || ctx?.video;
+  if(videoEl){
+    videoEl.srcObject = null;
   }
   hideScanMatchPanel();
   if(ctx?.stop){
@@ -3527,7 +3559,13 @@ if(openScannerBtn){
     if(scanModalEl && window.bootstrap){
       const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
       modal.show();
-      setTimeout(()=> startScanner(false), 120);
+      if(scanStartTimer){
+        clearTimeout(scanStartTimer);
+      }
+      scanStartTimer = setTimeout(()=>{
+        scanStartTimer = null;
+        startScanner(false);
+      }, 120);
     } else if(scanFallbackEl){
       scanFallbackEl.classList.add('show');
       startScanner(true);
@@ -3536,10 +3574,17 @@ if(openScannerBtn){
     }
   });
 }
-if(scanModalEl && window.bootstrap){
-  const onScanModalClosed = ()=> stopScanner();
-  scanModalEl.addEventListener("hide.bs.modal", onScanModalClosed);
-  scanModalEl.addEventListener("hidden.bs.modal", onScanModalClosed);
+if(scanModalEl){
+  const modalHandler = ()=> stopScanner();
+  if(window.bootstrap){
+    scanModalEl.addEventListener("hide.bs.modal", modalHandler);
+    scanModalEl.addEventListener("hidden.bs.modal", modalHandler);
+  }
+  scanModalEl.addEventListener("click", ev => {
+    if(ev.target?.closest('[data-bs-dismiss="modal"]')){
+      stopScanner();
+    }
+  });
 }
 if(scanFallbackEl){
   scanFallbackEl.addEventListener("click", ev => {
