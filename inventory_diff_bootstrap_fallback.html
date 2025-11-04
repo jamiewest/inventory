@@ -2683,7 +2683,24 @@ function extractBarcodeValue(results){
 }
 function extractSerialFromPayload(payload){
   if(!payload) return null;
-  const candidates = extractSerialCandidates(payload);
+  let text = payload;
+  try {
+    if(/^mailto:/i.test(payload)){ text = payload.split(':').slice(1).join(':'); }
+    if(/^https?:/i.test(payload)){
+      const url = new URL(payload);
+      if(url.searchParams.size){
+        for(const value of url.searchParams.values()){
+          const candidate = extractSerialCandidates(value).map(normalizeSerialCandidate).find(Boolean);
+          if(candidate) return candidate;
+        }
+      }
+      text = [url.pathname, url.hash].filter(Boolean).join(' ');
+    } else if(/^[A-F0-9+\/=]+$/i.test(payload) && payload.length % 4 === 0){
+      const decoded = atob(payload);
+      if(decoded) text = decoded;
+    }
+  } catch{}
+  const candidates = extractSerialCandidates(text);
   if(!candidates.length) return null;
   return normalizeSerialCandidate(candidates[0]);
 }
