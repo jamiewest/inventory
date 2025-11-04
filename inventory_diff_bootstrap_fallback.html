@@ -131,6 +131,13 @@
     height:100%;
     object-fit:cover;
   }
+  .scan-frame.front-facing video {
+    object-fit:contain;
+    transform:scale(0.85);
+  }
+  .scan-frame.front-facing {
+    background:#000;
+  }
   .scan-overlay {
     position:absolute;
     inset:0;
@@ -2813,6 +2820,7 @@ function cycleScanOverlayMode(){
 }
 
 setScanOverlayMode("none");
+applyFacingModeStyling();
 
 const scanContexts = {
   modal: {
@@ -2918,6 +2926,18 @@ async function configureCameraTrack(track){
     activeZoomLevel = 0;
   }
   updateZoomStatus();
+  applyFacingModeStyling();
+}
+function applyFacingModeStyling(){
+  const isFront = activeFacingMode === 'user';
+  [scanVideo, scanVideoFallback].forEach(video => {
+    if(!video) return;
+    video.classList.toggle('front-facing', isFront);
+    const frame = video.closest('.scan-frame');
+    if(frame){
+      frame.classList.toggle('front-facing', isFront);
+    }
+  });
 }
 function ensureQrCanvas(width, height){
   if(!qrCanvas){
@@ -3007,6 +3027,7 @@ async function toggleCamera(){
   activeFacingMode = activeFacingMode === 'environment' ? 'user' : 'environment';
   activeZoomLevel = 0;
   updateZoomStatus();
+  applyFacingModeStyling();
   stopScanner();
   if(scanCtx){
     startScanner(scanCtx === scanContexts.fallback);
@@ -3388,6 +3409,7 @@ async function startScanner(useFallback){
           activeFacingMode = normalizedFacing;
         }
       }
+      applyFacingModeStyling();
     }
     if(scanCtx.video){
       scanCtx.video.srcObject = scanStream;
