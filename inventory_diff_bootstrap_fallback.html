@@ -470,19 +470,19 @@
           </div>
           <div class="col-12 col-md-6">
             <label for="m_type" class="form-label">Type</label>
-            <input id="m_type" class="form-control" placeholder="optional"/>
+            <input id="m_type" class="form-control" placeholder="optional" list="typeSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
           </div>
           <div class="col-12 col-md-6">
             <label for="m_model" class="form-label">Model</label>
-            <input id="m_model" class="form-control" placeholder="optional"/>
+            <input id="m_model" class="form-control" placeholder="optional" list="modelSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
           </div>
           <div class="col-12 col-md-6">
             <label for="m_room" class="form-label">Cubicle / Office / Room</label>
-            <input id="m_room" class="form-control" placeholder="optional"/>
+            <input id="m_room" class="form-control" placeholder="optional" list="roomSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
           </div>
           <div class="col-12 col-md-6">
             <label for="m_assigned_to" class="form-label">Assigned To</label>
-            <input id="m_assigned_to" class="form-control" placeholder="optional"/>
+            <input id="m_assigned_to" class="form-control" placeholder="optional" list="assignedSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
           </div>
           <div class="col-12">
             <label class="form-label">Status</label>
@@ -522,19 +522,19 @@
         </div>
         <div>
           <label>Type</label>
-          <input id="fb_type" class="input" placeholder="optional"/>
+          <input id="fb_type" class="input" placeholder="optional" list="typeSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
         </div>
         <div>
           <label>Model</label>
-          <input id="fb_model" class="input" placeholder="optional"/>
+          <input id="fb_model" class="input" placeholder="optional" list="modelSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
         </div>
         <div>
           <label>Cubicle / Office / Room</label>
-          <input id="fb_room" class="input" placeholder="optional"/>
+          <input id="fb_room" class="input" placeholder="optional" list="roomSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
         </div>
         <div>
           <label>Assigned To</label>
-          <input id="fb_assigned_to" class="input" placeholder="optional"/>
+          <input id="fb_assigned_to" class="input" placeholder="optional" list="assignedSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
         </div>
         <div class="full">
           <label>Status</label>
@@ -651,19 +651,19 @@
               </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_type" class="form-label">Type</label>
-                <input id="view_edit_type" class="form-control" type="text"/>
+                <input id="view_edit_type" class="form-control" type="text" list="typeSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
               </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_model" class="form-label">Model</label>
-                <input id="view_edit_model" class="form-control" type="text"/>
+                <input id="view_edit_model" class="form-control" type="text" list="modelSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
               </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_room" class="form-label">Cubicle / Office / Room</label>
-                <input id="view_edit_room" class="form-control" type="text"/>
+                <input id="view_edit_room" class="form-control" type="text" list="roomSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
               </div>
               <div class="col-12 col-md-6">
                 <label for="view_edit_assigned_to" class="form-label">Assigned To</label>
-                <input id="view_edit_assigned_to" class="form-control" type="text"/>
+                <input id="view_edit_assigned_to" class="form-control" type="text" list="assignedSuggestions" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
               </div>
               <div class="col-12">
                 <label class="form-label" for="view_edit_status">Status</label>
@@ -874,6 +874,12 @@
   </div>
 </div>
 
+
+<!-- Suggested value lists -->
+<datalist id="typeSuggestions"></datalist>
+<datalist id="modelSuggestions"></datalist>
+<datalist id="roomSuggestions"></datalist>
+<datalist id="assignedSuggestions"></datalist>
 
 <!-- Toast containers -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
@@ -1179,6 +1185,13 @@ function showSavedToast(message, fallbackStatusId){
 
 // ======= Local Working Set =======
 const localCols = ["serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
+const SUGGESTION_FIELDS = {
+  type: "typeSuggestions",
+  model: "modelSuggestions",
+  room: "roomSuggestions",
+  assigned_to: "assignedSuggestions"
+};
+const SUGGESTION_MAX_ITEMS = 100;
 const VIEW_MODAL_FIELDS = [
   { label: "Record ID", aliases: ["id", "RecordID", "AssetID"] },
   { label: "Name", aliases: ["name", "Name"] },
@@ -1431,16 +1444,49 @@ function objToRow(obj){
   tr.appendChild(tdActions);
   return tr;
 }
+function updateSuggestionDatalists(rows){
+  const buckets = {};
+  for(const key of Object.keys(SUGGESTION_FIELDS)){
+    buckets[key] = new Set();
+  }
+  (rows || []).forEach(row => {
+    for(const key of Object.keys(SUGGESTION_FIELDS)){
+      const raw = row?.[key];
+      if(raw === undefined || raw === null) continue;
+      const text = typeof raw === "string" ? raw.trim() : String(raw).trim();
+      if(text) buckets[key].add(text);
+    }
+  });
+  for(const [key, datalistId] of Object.entries(SUGGESTION_FIELDS)){
+    const datalist = document.getElementById(datalistId);
+    if(!datalist) continue;
+    datalist.textContent = "";
+    Array.from(buckets[key])
+      .sort((a, b)=> a.localeCompare(b, undefined, { sensitivity:"base" }))
+      .slice(0, SUGGESTION_MAX_ITEMS)
+      .forEach(value => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        datalist.appendChild(opt);
+      });
+  }
+}
+function refreshFieldSuggestions(){
+  const rows = readLocal().map(upgradeRow);
+  updateSuggestionDatalists(rows);
+}
 function renderLocal(rows){
   localBody.innerHTML = "";
   (rows || []).map(upgradeRow).forEach(r => localBody.appendChild(objToRow(r)));
   queueTableRefresh({ resetPage:true });
+  refreshFieldSuggestions();
 }
 function readLocal(){ return Array.from(localBody.querySelectorAll("tr")).map(rowToObj).filter(r => Object.values(r).some(v => v !== "")); }
 async function saveLocalToIDB(){
   const rows = readLocal().map(upgradeRow);
   await idbSet(IDB_KEY_ROWS, rows);
   await refreshDataStats();
+  updateSuggestionDatalists(rows);
 }
 function addRow(data={}){
   localBody.appendChild(objToRow(upgradeRow(data)));
