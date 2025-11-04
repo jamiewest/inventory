@@ -797,13 +797,67 @@ function enableAltCDNs(){
 function markFallbackUI(){
   // add .fallback class to body for minimal styles
   document.body.classList.add('fallback');
-  // simple navbar toggler fallback
+}
+
+function setupResponsiveNav(){
   const toggler = document.querySelector('.navbar-toggler');
-  const target = document.getElementById('topNav');
-  if(toggler && target){
-    toggler.addEventListener('click', ()=>{
-      target.style.display = target.style.display === 'block' ? '' : 'block';
+  const menu = document.getElementById('topNav');
+  if(!toggler || !menu) return;
+
+  const usingBootstrap = ()=> !!(window.bootstrap && window.bootstrap.Collapse);
+  const ensureCollapse = ()=> usingBootstrap() ? window.bootstrap.Collapse.getOrCreateInstance(menu, { toggle:false }) : null;
+  const applyFallbackState = open => {
+    menu.classList.toggle('show', open);
+    menu.style.display = open ? 'block' : '';
+    toggler.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  const isOpen = ()=> {
+    if(usingBootstrap()){
+      return menu.classList.contains('show');
+    }
+    return menu.classList.contains('show') || menu.style.display === 'block';
+  };
+  const hideMenu = ()=>{
+    if(usingBootstrap()){
+      ensureCollapse()?.hide();
+    } else {
+      applyFallbackState(false);
+    }
+  };
+  const showMenu = ()=>{
+    if(usingBootstrap()){
+      ensureCollapse()?.show();
+    } else {
+      applyFallbackState(true);
+    }
+  };
+
+  if(!usingBootstrap()){
+    toggler.addEventListener('click', ev=>{
+      ev.preventDefault();
+      if(isOpen()) hideMenu();
+      else showMenu();
     });
+  } else {
+    toggler.addEventListener('click', ()=>{
+      if(isOpen()) hideMenu();
+    });
+  }
+
+  menu.querySelectorAll('.nav-link').forEach(link => {
+    link.addEventListener('click', hideMenu);
+  });
+
+  document.addEventListener('click', ev=>{
+    if(!isOpen()) return;
+    if(menu.contains(ev.target) || toggler.contains(ev.target)) return;
+    hideMenu();
+  });
+
+  window.addEventListener('hashchange', hideMenu);
+
+  if(!usingBootstrap()){
+    applyFallbackState(false);
   }
 }
 
@@ -838,6 +892,7 @@ function showRoute() {
 }
 window.addEventListener("hashchange", showRoute);
 window.addEventListener("DOMContentLoaded", showRoute);
+window.addEventListener("DOMContentLoaded", setupResponsiveNav);
 
 // ======= IndexedDB kv =======
 const DB_NAME = 'inventoryDB';
