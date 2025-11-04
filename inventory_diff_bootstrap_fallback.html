@@ -2582,6 +2582,8 @@ let zxingActive = false;
 let pendingPayloads = [];
 let qrCanvas = null;
 let qrCtx = null;
+let qrRotateCanvas = null;
+let qrRotateCtx = null;
 const ignoredCodes = new Set();
 let lastScanContext = null;
 let ocrCanvas = null;
@@ -2604,20 +2606,47 @@ function detectQrFromFrame(video){
   const width = video.videoWidth || video.clientWidth;
   const height = video.videoHeight || video.clientHeight;
   if(!width || !height) return null;
-  const cropWidth = Math.floor(width * 0.7);
-  const cropHeight = Math.floor(height * 0.7);
-  if(scanCtx?.statusId){
-    setStatus(scanCtx.statusId, "Adjusting view…", "info");
-  }
+  const cropWidth = Math.floor(width * 0.8);
+  const cropHeight = Math.floor(height * 0.8);
   const sx = Math.max(0, Math.floor((width - cropWidth) / 2));
   const sy = Math.max(0, Math.floor((height - cropHeight) / 2));
   const ctx = ensureQrCanvas(cropWidth, cropHeight);
   ctx.drawImage(video, sx, sy, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
   try {
-    const imageData = ctx.getImageData(0, 0, cropWidth, cropHeight);
-    const result = window.jsQR(imageData.data, cropWidth, cropHeight, { inversionAttempts: 'attemptBoth' });
-    if(result && result.data){
-      return result.data;
+    const attemptDecode = (canvasCtx, w, h)=>{
+      const data = canvasCtx.getImageData(0, 0, w, h);
+      const res = window.jsQR(data.data, w, h, { inversionAttempts: 'attemptBoth' });
+      return res && res.data ? res.data : null;
+    };
+    let payload = attemptDecode(ctx, cropWidth, cropHeight);
+    if(payload) return payload;
+
+    const ensureRotateCanvas = (w, h)=>{
+      if(!qrRotateCanvas){
+        qrRotateCanvas = document.createElement('canvas');
+        qrRotateCtx = qrRotateCanvas.getContext('2d', { willReadFrequently: true }) || qrRotateCanvas.getContext('2d');
+      }
+      if(qrRotateCanvas.width !== w || qrRotateCanvas.height !== h){
+        qrRotateCanvas.width = w;
+        qrRotateCanvas.height = h;
+      }
+      qrRotateCtx.setTransform(1, 0, 0, 1, 0, 0);
+      qrRotateCtx.clearRect(0, 0, w, h);
+      return qrRotateCtx;
+    };
+
+    const rotations = [Math.PI / 2, Math.PI, 1.5 * Math.PI];
+    for(const angle of rotations){
+      const rotateWidth = (angle === Math.PI / 2 || angle === 1.5 * Math.PI) ? cropHeight : cropWidth;
+      const rotateHeight = (angle === Math.PI / 2 || angle === 1.5 * Math.PI) ? cropWidth : cropHeight;
+      const rCtx = ensureRotateCanvas(rotateWidth, rotateHeight);
+      rCtx.save();
+      rCtx.translate(rotateWidth / 2, rotateHeight / 2);
+      rCtx.rotate(angle);
+      rCtx.drawImage(qrCanvas, -cropWidth / 2, -cropHeight / 2);
+      rCtx.restore();
+      payload = attemptDecode(rCtx, rotateWidth, rotateHeight);
+      if(payload) return payload;
     }
   } catch(err){
     console.warn('jsQR detection failed', err);
