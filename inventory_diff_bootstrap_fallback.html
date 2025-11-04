@@ -2941,6 +2941,8 @@ let cameraCapabilities = {};           // MediaTrackCapabilities from camera
 let activeVideoTrack = null;           // Active MediaStreamTrack for camera
 let zoomRange = null;                  // {min, max} zoom range for current camera
 const FRONT_ZOOM_LIMIT = 0.4;          // Max zoom for front camera (0-1 range)
+let refocusTimer = null;               // Debounce timer for camera refocus
+let pendingRefocusPoint = { x: 0.5, y: 0.5 }; // Last requested focus point (normalized)
 async function configureCameraTrack(track){
   if(!track) return;
   const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -2986,6 +2988,7 @@ async function configureCameraTrack(track){
   }
   updateZoomStatus();
   applyFacingModeStyling();
+  scheduleCameraRefocus({ delay: 0 });
 }
 function applyFacingModeStyling(){
   const isFront = activeFacingMode === 'user';
@@ -2997,6 +3000,52 @@ function applyFacingModeStyling(){
       frame.classList.toggle('front-facing', isFront);
     }
   });
+}
+async function refocusCamera(point){
+  const track = activeVideoTrack;
+  if(!track) return;
+  const caps = cameraCapabilities || (track.getCapabilities ? track.getCapabilities() : {}) || {};
+  const focusModes = Array.isArray(caps.focusMode) ? caps.focusMode : [];
+  const x = Math.min(1, Math.max(0, Number.isFinite(point?.x) ? point.x : 0.5));
+  const y = Math.min(1, Math.max(0, Number.isFinite(point?.y) ? point.y : 0.5));
+  const constraints = [];
+  if(caps.pointsOfInterest){
+    constraints.push({ pointsOfInterest: [{ x, y }] });
+  }
+  let appliedMode = null;
+  if(focusModes.includes('single-shot')){
+    constraints.push({ focusMode: 'single-shot' });
+    appliedMode = 'single-shot';
+  } else if(focusModes.includes('continuous')){
+    constraints.push({ focusMode: 'continuous' });
+    appliedMode = 'continuous';
+  } else if(focusModes.includes('auto')){
+    constraints.push({ focusMode: 'auto' });
+    appliedMode = 'auto';
+  }
+  if(!constraints.length) return;
+  try {
+    await track.applyConstraints({ advanced: constraints });
+    if(appliedMode === 'single-shot' && focusModes.includes('continuous')){
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    }
+  } catch(err){
+    console.warn('Camera refocus failed', err);
+  }
+}
+function scheduleCameraRefocus({ x = pendingRefocusPoint?.x ?? 0.5, y = pendingRefocusPoint?.y ?? 0.5, delay = 160 } = {}){
+  if(!activeVideoTrack) return;
+  pendingRefocusPoint = {
+    x: Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0.5)),
+    y: Math.min(1, Math.max(0, Number.isFinite(y) ? y : 0.5))
+  };
+  if(refocusTimer){
+    clearTimeout(refocusTimer);
+  }
+  refocusTimer = setTimeout(()=>{
+    refocusTimer = null;
+    void refocusCamera(pendingRefocusPoint);
+  }, Math.max(0, delay));
 }
 function ensureQrCanvas(width, height){
   if(!qrCanvas){
@@ -3081,6 +3130,7 @@ async function adjustZoom(delta){
     console.warn('Zoom adjust failed', err);
   }
   updateZoomStatus();
+  scheduleCameraRefocus({ delay: 220 });
 }
 async function toggleCamera(){
   activeFacingMode = activeFacingMode === 'environment' ? 'user' : 'environment';
@@ -3678,6 +3728,11 @@ function stopScanner(){
   const ctx = scanCtx || lastScanContext;
   clearTimeout(scanLoopTimer);
   scanLoopTimer = null;
+  if(refocusTimer){
+    clearTimeout(refocusTimer);
+    refocusTimer = null;
+  }
+  pendingRefocusPoint = { x: 0.5, y: 0.5 };
   scanActive = false;
   scanPaused = false;
   stopOcrLoop();
@@ -3891,6 +3946,38 @@ if(scanFallbackEl){
     }
   });
 }
+const attachTapToFocus = (video)=>{
+  if(!video) return;
+  let lastTouchTime = 0;
+  const scheduleFromPoint = (clientX, clientY)=>{
+    if(!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
+    const rect = video.getBoundingClientRect();
+    if(!rect.width || !rect.height) return;
+    const normX = (clientX - rect.left) / rect.width;
+    const normY = (clientY - rect.top) / rect.height;
+    scheduleCameraRefocus({ x: normX, y: normY, delay: 80 });
+  };
+  if(window.PointerEvent){
+    video.addEventListener('pointerdown', ev => {
+      if(ev.isPrimary === false) return;
+      if(typeof ev.button === 'number' && ev.button !== 0) return;
+      scheduleFromPoint(ev.clientX, ev.clientY);
+    });
+  } else {
+    video.addEventListener('touchstart', ev => {
+      if(!ev.touches?.length) return;
+      lastTouchTime = Date.now();
+      const touch = ev.touches[0];
+      scheduleFromPoint(touch.clientX, touch.clientY);
+    }, { passive: true });
+    video.addEventListener('click', ev => {
+      if(Date.now() - lastTouchTime < 400) return;
+      scheduleFromPoint(ev.clientX, ev.clientY);
+    });
+  }
+};
+attachTapToFocus(scanVideo);
+attachTapToFocus(scanVideoFallback);
 if(scanConfirmBtn){
   scanConfirmBtn.addEventListener("click", ()=> handleScanConfirm());
 }
