@@ -3230,20 +3230,6 @@ function scheduleScanLoop(delay=300){
       }
     }
 
-    if(scanCtx?.video){
-      const qrPayload = detectQrFromFrame(scanCtx.video);
-      if(qrPayload){
-        const normalizedQr = extractSerialFromPayload(qrPayload);
-        const candidateQr = normalizedQr || qrPayload.trim();
-        if(candidateQr){
-          presentScanMatch(candidateQr);
-          scheduleScanLoop(900);
-          return;
-        }
-        pendingPayloads.push(qrPayload);
-      }
-    }
-
     if(!scanActive || !scanCtx || !scanCtx.video){
       return;
     }
@@ -3268,6 +3254,21 @@ function scheduleScanLoop(delay=300){
       } catch(err){
         console.warn("Barcode detection failed", err);
         setScanStatusMessage(`Scanning error: ${err.message}`, "error");
+      }
+    } else {
+      // Only use jsQR fallback when native BarcodeDetector is unavailable
+      if(scanCtx?.video){
+        const qrPayload = detectQrFromFrame(scanCtx.video);
+        if(qrPayload){
+          const normalizedQr = extractSerialFromPayload(qrPayload);
+          const candidateQr = normalizedQr || qrPayload.trim();
+          if(candidateQr){
+            presentScanMatch(candidateQr);
+            scheduleScanLoop(900);
+            return;
+          }
+          pendingPayloads.push(qrPayload);
+        }
       }
     }
     scheduleScanLoop(200);
