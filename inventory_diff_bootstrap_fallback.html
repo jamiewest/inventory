@@ -1017,6 +1017,15 @@ window.addEventListener("DOMContentLoaded", showRoute);
 window.addEventListener("DOMContentLoaded", setupResponsiveNav);
 
 // ======= IndexedDB kv =======
+// ============================================================================
+// ======= Data Layer: IndexedDB Storage =======
+// ============================================================================
+// Offline-first storage using IndexedDB with localStorage migration fallback
+// Schema: Key-value store with two main keys:
+//   - 'localRows': Array of inventory records
+//   - 'statusOptions': Array of custom status values
+// ============================================================================
+
 const DB_NAME = 'inventoryDB';
 const DB_VERSION = 4;
 const STORE = 'kv';
@@ -1191,6 +1200,12 @@ function showSavedToast(message, fallbackStatusId){
 }
 
 // ======= Local Working Set =======
+// ============================================================================
+// ======= Data Model: Schema & Constants =======
+// ============================================================================
+// Inventory record schema and application-wide constants
+// ============================================================================
+
 const localCols = ["serial_number","asset_tag","type","model","room","assigned_to","status","meta"];
 const SUGGESTION_FIELDS = {
   type: "typeSuggestions",
@@ -2744,7 +2759,47 @@ if(seedConfirmFallbackEl){
   });
 }
 
-// ======= Barcode scanner =======
+// ============================================================================
+// ======= Barcode Scanner Module =======
+// ============================================================================
+//
+// ARCHITECTURE: Three-tier barcode/QR detection system for maximum compatibility
+//
+// Detection Methods (in execution order):
+//   1. jsQR (canvas-based) - Detects QR codes via CPU-intensive image processing
+//      - Runs FIRST in scheduleScanLoop before other methods
+//      - Performance: ~50-200ms per attempt (12 attempts: 3 crops × 4 rotations)
+//      - Location: detectQrFromFrame() called at line ~3234
+//
+//   2. Native BarcodeDetector API - Hardware-accelerated barcode detection
+//      - Runs SECOND if available (Chrome/Edge)
+//      - Handles: CODE_128, CODE_39, EAN_13, EAN_8, UPC_A, UPC_E, QR_CODE
+//      - Location: scheduleScanLoop() at line ~3254
+//
+//   3. ZXing Library - JavaScript barcode detection fallback
+//      - ALWAYS starts as ultimate fallback (line ~3442)
+//      - Uses continuous callback-based scanning via decodeFromVideoDevice()
+//      - CRITICAL: Must use decodeFromVideoDevice(null, video, callback)
+//                  NOT decodeFromVideoElement (one-shot vs continuous)
+//      - Location: startZXingLoop() at line ~3490
+//
+// State Management:
+//   - scanActive: Camera is running and accepting frames
+//   - scanPaused: Detection paused (match found, awaiting user action)
+//   - zxingActive: ZXing is running (blocks scheduleScanLoop via line ~3219)
+//
+// Dual UI Support:
+//   - scanContexts.modal: Bootstrap modal UI (primary)
+//   - scanContexts.fallback: Fallback modal UI (when Bootstrap CDN fails)
+//
+// Serial Number Handling:
+//   - Designed for Dell service tags (7 alphanumeric characters)
+//   - Normalizes confusing chars: 0→O, 1→I, 5→S, 6→G, 8→B, 9→G
+//   - Falls back to raw barcode value if not 7 chars
+//
+// ============================================================================
+
+// DOM element references (dual UI: modal + fallback)
 const scanModalEl = document.getElementById('scanModal');
 const scanVideo = document.getElementById('scanVideo');
 const scanMatchPanel = document.getElementById('scanMatchPanel');
@@ -2824,6 +2879,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   wirePrimaryButtons();
 });
 
+// Scanner context objects - abstraction for dual UI support
+// Allows same scanner logic to work with Bootstrap modals OR fallback modals
 const scanContexts = {
   modal: {
     statusId: "scanStatus",
@@ -2858,31 +2915,32 @@ const scanContexts = {
     root: scanFallbackEl
   }
 };
-let scanCtx = null;
-let scanStream = null;
-let scanDetector = null;
-let scanActive = false;
-let scanPaused = false;
-let scanLoopTimer = null;
-let currentScanRow = null;
-let currentScanCode = "";
-let zxingReader = null;
-let zxingActive = false;
-let pendingPayloads = [];
-let qrCanvas = null;
-let qrCtx = null;
-let qrRotateCanvas = null;
-let qrRotateCtx = null;
-const ignoredCodes = new Set();
-let lastScanContext = null;
-let ocrCanvas = null;
-let ocrCtx = null;
-let activeFacingMode = 'environment';
-let activeZoomLevel = 0;
-let cameraCapabilities = {};
-let activeVideoTrack = null;
-let zoomRange = null;
-const FRONT_ZOOM_LIMIT = 0.4;
+// Scanner state variables (TODO: Consider consolidating into scannerState object)
+let scanCtx = null;                    // Current scanner context (modal or fallback)
+let scanStream = null;                 // MediaStream from getUserMedia
+let scanDetector = null;               // Native BarcodeDetector instance (if supported)
+let scanActive = false;                // Camera is running and detecting
+let scanPaused = false;                // Detection paused (match found, awaiting user action)
+let scanLoopTimer = null;              // setTimeout handle for scheduleScanLoop
+let currentScanRow = null;             // Table row matching detected barcode
+let currentScanCode = "";              // Currently displayed barcode value
+let zxingReader = null;                // ZXing BrowserMultiFormatReader instance
+let zxingActive = false;               // ZXing is running (blocks scheduleScanLoop)
+let pendingPayloads = [];              // Queue of detected barcodes awaiting processing
+let qrCanvas = null;                   // Canvas for jsQR detection
+let qrCtx = null;                      // 2D context for qrCanvas
+let qrRotateCanvas = null;             // Canvas for rotated QR attempts
+let qrRotateCtx = null;                // 2D context for qrRotateCanvas
+const ignoredCodes = new Set();        // User-ignored barcodes (cleared on scanner close)
+let lastScanContext = null;            // Last used context (for camera toggle)
+let ocrCanvas = null;                  // Canvas for OCR detection (currently disabled)
+let ocrCtx = null;                     // 2D context for ocrCanvas
+let activeFacingMode = 'environment';  // Camera facing: 'environment' (back) or 'user' (front)
+let activeZoomLevel = 0;               // Current zoom level
+let cameraCapabilities = {};           // MediaTrackCapabilities from camera
+let activeVideoTrack = null;           // Active MediaStreamTrack for camera
+let zoomRange = null;                  // {min, max} zoom range for current camera
+const FRONT_ZOOM_LIMIT = 0.4;          // Max zoom for front camera (0-1 range)
 async function configureCameraTrack(track){
   if(!track) return;
   const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -3038,6 +3096,22 @@ async function toggleCamera(){
     startScanner(false);
   }
 }
+/**
+ * detectQrFromFrame - CPU-intensive QR code detection using jsQR library
+ *
+ * PERFORMANCE: Slow (~50-200ms per call) due to:
+ * - 3 crop regions (full, 80%, 60%)
+ * - 4 rotation attempts per crop (0°, 90°, 180°, 270°)
+ * - Total: 12 canvas operations + 12 decode attempts
+ *
+ * This causes setTimeout violations in scheduleScanLoop but provides
+ * reliable QR detection when native BarcodeDetector is unreliable
+ *
+ * OPTIMIZATION OPPORTUNITY: Make configurable or skip when BarcodeDetector works
+ *
+ * @param {HTMLVideoElement} video - Video element with camera feed
+ * @returns {string|null} Decoded QR code data or null
+ */
 function detectQrFromFrame(video){
   if(!video || !window.jsQR) return null;
   const width = video.videoWidth || video.clientWidth;
@@ -3160,6 +3234,19 @@ function extractSerialFromPayload(payload){
   if(!candidates.length) return null;
   return normalizeSerialCandidate(candidates[0]);
 }
+/**
+ * extractSerialCandidates - Extract potential Dell service tags from barcode text
+ *
+ * PATTERN: Exactly 7 alphanumeric characters (Dell service tag format)
+ * FILTERING: Must have at least 3 unique characters to avoid false positives
+ *            (excludes: "1111111", "AAAAAAA", "0000000", etc.)
+ *
+ * NOTE: Dell service tags typically omit confusing characters (I, O, Q)
+ *       but this function extracts ANY 7-char alphanumeric sequence
+ *
+ * @param {string} text - Raw barcode payload
+ * @returns {string[]} Array of 7-character serial number candidates
+ */
 function extractSerialCandidates(text){
   if(!text) return [];
   const uppercase = text.toUpperCase();
@@ -3171,6 +3258,28 @@ function extractSerialCandidates(text){
     return uniqueChars.size >= 3;
   });
 }
+/**
+ * normalizeSerialCandidate - Normalize Dell service tag serial numbers
+ *
+ * NORMALIZATION RULES:
+ * When a digit appears between two letters, convert it:
+ *   0 → O (oh)
+ *   1 → I (eye)
+ *   5 → S
+ *   6 → G
+ *   8 → B
+ *   9 → G
+ *
+ * EXAMPLES:
+ *   "ABC1DEF" → "ABCIDEF" (1 between letters becomes I)
+ *   "12ABC34" → "12ABC34" (digits at edges unchanged)
+ *   "A1B2C3D" → "AIBZCGD" (all digits between letters are converted)
+ *
+ * FALLBACK: If result isn't exactly 7 chars, returns uppercase original
+ *
+ * @param {string} code - Serial number candidate
+ * @returns {string} Normalized serial or uppercase original
+ */
 function normalizeSerialCandidate(code){
   if(!code) return "";
   let value = code.toUpperCase();
@@ -3214,8 +3323,32 @@ function ensureOcrCanvas(width, height){
   }
   return ocrCtx;
 }
+/**
+ * scheduleScanLoop - Timer-based barcode detection loop
+ *
+ * DETECTION ORDER (within setTimeout callback):
+ * 1. Process pending payloads queue (from previous detections)
+ * 2. Run jsQR QR code detection (12 attempts, ~50-200ms)
+ * 3. Run native BarcodeDetector if available
+ * 4. Schedule next iteration
+ *
+ * IMPORTANT BEHAVIORS:
+ * - Exits immediately if zxingActive (ZXing handles detection instead)
+ * - Pauses when match found (scanPaused = true) until user confirms/ignores
+ * - Recursively schedules next iteration with varying delays:
+ *   * 900ms after successful detection (slower to allow user interaction)
+ *   * 250ms when paused (checking if ready to resume)
+ *   * 200ms normal scanning rate
+ *
+ * PERFORMANCE NOTE:
+ * jsQR detection is CPU-intensive and causes setTimeout violations,
+ * but runs first for historical reliability reasons
+ *
+ * @param {number} delay - Milliseconds before next scan attempt (default 300ms)
+ */
 function scheduleScanLoop(delay=300){
   clearTimeout(scanLoopTimer);
+  // Exit if ZXing is handling detection - prevents dual detection systems
   if(zxingActive) return;
   if(!scanActive || scanPaused || !scanCtx || !scanCtx.video) return;
   scanLoopTimer = setTimeout(async ()=>{
@@ -3341,6 +3474,27 @@ function presentScanMatch(code){
   }
   scanPaused = true;
 }
+/**
+ * startScanner - Initialize camera and start all detection systems
+ *
+ * LIFECYCLE:
+ * 1. Stop any existing scanner
+ * 2. Request camera permissions (getUserMedia)
+ * 3. Configure camera track (zoom, facing mode)
+ * 4. Attach stream to video element
+ * 5. Initialize BarcodeDetector if available
+ * 6. Start scheduleScanLoop (jsQR + BarcodeDetector)
+ * 7. Start ZXing fallback (always runs as ultimate backup)
+ *
+ * DETECTION INITIALIZATION:
+ * - If BarcodeDetector available: scheduleScanLoop(350)
+ * - If BarcodeDetector NOT available: scheduleScanLoop(350) for jsQR
+ * - ZXing ALWAYS starts via startZXingLoop() regardless
+ *
+ * CRITICAL: ZXing always starts to provide continuous fallback detection
+ *
+ * @param {boolean} useFallback - Use fallback UI (true) or Bootstrap modal (false)
+ */
 async function startScanner(useFallback){
   stopScanner();
   scanCtx = getScanCtx(useFallback);
@@ -3487,6 +3641,25 @@ function stopScanner(){
   scanCtx = null;
   updateZoomStatus();
 }
+/**
+ * startZXingLoop - Initialize ZXing continuous barcode scanning
+ *
+ * CRITICAL API USAGE:
+ * Must use: zxingReader.decodeFromVideoDevice(null, video, callback)
+ * NOT:      zxingReader.decodeFromVideoElement(video, callback)
+ *
+ * Reason: decodeFromVideoDevice provides CONTINUOUS scanning with callbacks
+ *         decodeFromVideoElement is ONE-SHOT and won't detect multiple barcodes
+ *
+ * PARAMETERS:
+ * - First arg (null): Device ID (null = use current video stream)
+ * - Second arg: Video element with camera feed
+ * - Third arg: Callback fired on each detection attempt
+ *
+ * STATE: Sets zxingActive = true, which blocks scheduleScanLoop
+ *
+ * HISTORY: This bug was fixed in commit 61188ae - do not revert!
+ */
 function startZXingLoop(){
   if(!scanCtx || !scanCtx.video){
     setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
