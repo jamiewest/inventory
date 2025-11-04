@@ -2895,9 +2895,10 @@ function scheduleScanLoop(delay=300){
   scanLoopTimer = setTimeout(async ()=>{
     if(pendingPayloads.length){
       const payload = pendingPayloads.shift();
-      const normalized = extractSerialFromPayload(payload) || payload.trim();
-      if(normalized){
-        presentScanMatch(normalized);
+      const normalized = extractSerialFromPayload(payload);
+      const candidate = normalized || payload.trim();
+      if(candidate){
+        presentScanMatch(candidate);
         scheduleScanLoop(900);
         return;
       }
@@ -2907,8 +2908,9 @@ function scheduleScanLoop(delay=300){
       const qrPayload = detectQrFromFrame(scanCtx.video);
       if(qrPayload){
         const normalizedQr = extractSerialFromPayload(qrPayload);
-        if(normalizedQr){
-          presentScanMatch(normalizedQr);
+        const candidateQr = normalizedQr || qrPayload.trim();
+        if(candidateQr){
+          presentScanMatch(candidateQr);
           scheduleScanLoop(900);
           return;
         }
@@ -2929,8 +2931,9 @@ function scheduleScanLoop(delay=300){
         const value = extractBarcodeValue(results);
         if(value){
           const normalized = extractSerialFromPayload(value);
-          if(normalized){
-            presentScanMatch(normalized);
+          const candidate = normalized || value.trim();
+          if(candidate){
+            presentScanMatch(candidate);
             scheduleScanLoop(900);
             return;
           }
@@ -3154,10 +3157,9 @@ function startZXingLoop(){
         const payload = result.getText?.() || result.text || "";
         if(payload){
           const normalized = extractSerialFromPayload(payload);
-          if(normalized){
-            presentScanMatch(normalized);
-          } else {
-            pendingPayloads.push((payload || '').trim());
+          const candidate = normalized || (payload || '').trim();
+          if(candidate){
+            presentScanMatch(candidate);
           }
         }
       } else if(err && !(err instanceof window.ZXing.NotFoundException)){
