@@ -3509,7 +3509,12 @@ function startZXingLoop(){
     } else {
       zxingReader = new window.ZXing.BrowserMultiFormatReader();
     }
-    zxingReader.decodeFromVideoElement(scanCtx.video, (result, err)=>{
+    const videoEl = scanCtx.video;
+    if(!videoEl){
+      setScanStatusMessage("Scanner unavailable. Use manual lookup.", "error");
+      return;
+    }
+    zxingReader.decodeFromVideoElementContinuously(videoEl, (result, err)=>{
       if(!scanActive || scanPaused){
         return;
       }
