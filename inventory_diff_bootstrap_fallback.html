@@ -2872,6 +2872,8 @@ let activeZoomLevel = 0;
 let cameraCapabilities = {};
 let activeVideoTrack = null;
 let scanStartTimer = null;
+let zoomRange = null;
+const FRONT_ZOOM_LIMIT = 0.4;
 async function configureCameraTrack(track){
   if(!track) return;
   const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -2880,16 +2882,23 @@ async function configureCameraTrack(track){
   cameraCapabilities = caps || {};
   activeVideoTrack = track;
   if(caps.zoom){
-    const min = Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1;
-    const max = Number.isFinite(caps.zoom.max) ? caps.zoom.max : min;
+    const rawMin = Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1;
+    const rawMax = Number.isFinite(caps.zoom.max) ? caps.zoom.max : rawMin;
+    const span = rawMax - rawMin;
+    const effectiveMax = activeFacingMode === 'user' && span > 0
+      ? rawMin + span * FRONT_ZOOM_LIMIT
+      : rawMax;
+    zoomRange = { min: rawMin, max: effectiveMax, physicalMax: rawMax };
     const normalized = Number.isFinite(activeZoomLevel) ? activeZoomLevel : 0;
-    const targetZoom = min + (max - min) * Math.min(1, Math.max(0, normalized));
+    const targetZoom = rawMin + (effectiveMax - rawMin) * Math.min(1, Math.max(0, normalized));
     constraints.advanced.push({ zoom: targetZoom });
+  } else {
+    zoomRange = null;
   }
   if(caps.focusMode && caps.focusMode.includes('continuous')){
     constraints.advanced.push({ focusMode: 'continuous' });
   }
-  if(caps.torch && !settings.torch){
+  if(caps.torch && !settings.torch && activeFacingMode === 'environment'){
     constraints.advanced.push({ torch: true });
   }
   if(constraints.advanced.length){
@@ -2900,10 +2909,11 @@ async function configureCameraTrack(track){
     }
   }
   if(caps.zoom){
-    const min = Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1;
-    const max = Number.isFinite(caps.zoom.max) ? caps.zoom.max : min;
-    const current = track.getSettings?.().zoom ?? settings.zoom ?? min;
-    activeZoomLevel = max !== min ? (current - min) / (max - min) : 0;
+    const min = zoomRange?.min ?? (Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1);
+    const effectiveMax = zoomRange?.max ?? (Number.isFinite(caps.zoom.max) ? caps.zoom.max : min);
+    const currentSetting = track.getSettings?.().zoom ?? settings.zoom ?? min;
+    const clamped = Math.min(currentSetting, effectiveMax);
+    activeZoomLevel = effectiveMax !== min ? (clamped - min) / (effectiveMax - min) : 0;
   } else {
     activeZoomLevel = 0;
   }
@@ -2928,14 +2938,24 @@ function updateZoomStatus(){
   if(!caps.zoom){
     if(scanZoomStatus) scanZoomStatus.textContent = '';
     if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = '';
-    if(scanZoomSlider) scanZoomSlider.value = 0;
-    if(scanZoomSliderFallback) scanZoomSliderFallback.value = 0;
+    if(scanZoomSlider){
+      scanZoomSlider.value = 0;
+      scanZoomSlider.max = 100;
+      scanZoomSlider.dataset.facing = activeFacingMode;
+    }
+    if(scanZoomSliderFallback){
+      scanZoomSliderFallback.value = 0;
+      scanZoomSliderFallback.max = 100;
+      scanZoomSliderFallback.dataset.facing = activeFacingMode;
+    }
     return;
   }
-  const min = Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1;
-  const max = Number.isFinite(caps.zoom.max) ? caps.zoom.max : min;
+  const min = zoomRange?.min ?? (Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1);
+  const limit = zoomRange?.max ?? (Number.isFinite(caps.zoom.max) ? caps.zoom.max : min);
   const rawSetting = activeVideoTrack?.getSettings?.().zoom;
-  const currentSetting = Number.isFinite(rawSetting) ? rawSetting : (min + (max - min) * activeZoomLevel);
+  const currentSetting = Number.isFinite(rawSetting)
+    ? rawSetting
+    : (min + (limit - min) * activeZoomLevel);
   if(!Number.isFinite(currentSetting)){
     if(scanZoomStatus) scanZoomStatus.textContent = '';
     if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = '';
@@ -2943,21 +2963,39 @@ function updateZoomStatus(){
     if(scanZoomSliderFallback) scanZoomSliderFallback.value = 0;
     return;
   }
-  const percent = max !== min ? Math.round(((currentSetting - min) / (max - min)) * 100) : 0;
-  const label = `Zoom ${currentSetting.toFixed(2)}× (${percent}%)`;
+  const clamped = Math.min(currentSetting, limit);
+  const percent = limit !== min ? Math.round(((clamped - min) / (limit - min)) * 100) : 0;
+  const labelSuffix = (zoomRange && zoomRange.physicalMax && zoomRange.max < zoomRange.physicalMax - 0.001 && activeFacingMode === 'user')
+    ? ' (front camera)'
+    : '';
+  const label = `Zoom ${currentSetting.toFixed(2)}× (${percent}%)${labelSuffix}`;
+  const physicalMax = zoomRange?.physicalMax ?? limit;
+  const spanPhysical = physicalMax - min;
+  const sliderMax = (zoomRange && zoomRange.physicalMax && zoomRange.max < zoomRange.physicalMax - 0.001 && spanPhysical > 0)
+    ? Math.max(10, Math.round(((limit - min) / spanPhysical) * 100))
+    : 100;
+  const sliderValue = Math.min(sliderMax, Math.round((percent / 100) * sliderMax));
   if(scanZoomStatus) scanZoomStatus.textContent = label;
   if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = label;
-  if(scanZoomSlider) scanZoomSlider.value = percent;
-  if(scanZoomSliderFallback) scanZoomSliderFallback.value = percent;
+  if(scanZoomSlider){
+    scanZoomSlider.max = sliderMax;
+    scanZoomSlider.value = sliderValue;
+    scanZoomSlider.dataset.facing = activeFacingMode;
+  }
+  if(scanZoomSliderFallback){
+    scanZoomSliderFallback.max = sliderMax;
+    scanZoomSliderFallback.value = sliderValue;
+    scanZoomSliderFallback.dataset.facing = activeFacingMode;
+  }
 }
 async function adjustZoom(delta){
   if(!activeVideoTrack || !(cameraCapabilities?.zoom)) return;
   if(Number.isFinite(delta)){
     activeZoomLevel = Math.min(1, Math.max(0, activeZoomLevel + delta));
   }
-  const min = Number.isFinite(cameraCapabilities.zoom.min) ? cameraCapabilities.zoom.min : 1;
-  const max = Number.isFinite(cameraCapabilities.zoom.max) ? cameraCapabilities.zoom.max : min;
-  const target = min + (max - min) * activeZoomLevel;
+  const min = zoomRange?.min ?? (Number.isFinite(cameraCapabilities.zoom.min) ? cameraCapabilities.zoom.min : 1);
+  const limit = zoomRange?.max ?? (Number.isFinite(cameraCapabilities.zoom.max) ? cameraCapabilities.zoom.max : min);
+  const target = min + (limit - min) * activeZoomLevel;
   try {
     await activeVideoTrack.applyConstraints({ advanced: [{ zoom: target }] });
   } catch(err){
@@ -3319,7 +3357,7 @@ async function startScanner(useFallback){
         facingMode: { ideal: activeFacingMode },
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        zoom: { ideal: 2 }
+        zoom: { ideal: activeFacingMode === 'environment' ? 2 : 1 }
       },
       audio: false
     };
@@ -3413,6 +3451,7 @@ function stopScanner(){
   }
   activeVideoTrack = null;
   cameraCapabilities = {};
+  zoomRange = null;
   if(zxingReader){
     try { zxingReader.reset(); } catch {}
   }
@@ -3626,7 +3665,8 @@ if(scanStopFallbackBtn){
 }
 if(scanZoomSlider){
   scanZoomSlider.addEventListener("input", e => {
-    const value = Number(e.target.value) / 100;
+    const max = Number(e.target.max) || 100;
+    const value = Number(e.target.value) / max;
     if(!Number.isFinite(value)) return;
     activeZoomLevel = Math.min(1, Math.max(0, value));
     adjustZoom();
@@ -3634,7 +3674,8 @@ if(scanZoomSlider){
 }
 if(scanZoomSliderFallback){
   scanZoomSliderFallback.addEventListener("input", e => {
-    const value = Number(e.target.value) / 100;
+    const max = Number(e.target.max) || 100;
+    const value = Number(e.target.value) / max;
     if(!Number.isFinite(value)) return;
     activeZoomLevel = Math.min(1, Math.max(0, value));
     adjustZoom();
