@@ -261,8 +261,8 @@
               <h5 class="mb-0">Inventory</h5>
             </div>
             <div class="header-actions">
-              <button class="btn btn-primary btn-sm" id="openAdd">Add asset</button>
-              <button class="btn btn-outline-success btn-sm" id="openScanner">Scan barcode</button>
+              <button class="btn btn-primary btn-sm" type="button" id="openAdd" onclick="return openAddFromButton(event);">Add asset</button>
+              <button class="btn btn-outline-success btn-sm" type="button" id="openScanner" onclick="return openScannerFromButton(event);">Scan barcode</button>
               <button class="btn btn-outline-danger btn-sm" id="deleteSelected">Delete selected</button>
             </div>
           </div>
@@ -2483,7 +2483,6 @@ $("#copyMd").addEventListener("click", async ()=>{
 });
 
 // ======= Add Modal (Bootstrap or fallback) =======
-const openAdd = document.getElementById('openAdd');
 const confirmAdd = document.getElementById('confirmAdd');
 const addModalEl = document.getElementById('addModal');
 const fbModalEl = document.getElementById('fallbackModal');
@@ -2746,7 +2745,6 @@ if(seedConfirmFallbackEl){
 }
 
 // ======= Barcode scanner =======
-const openScannerBtn = document.getElementById('openScanner');
 const scanModalEl = document.getElementById('scanModal');
 const scanVideo = document.getElementById('scanVideo');
 const scanMatchPanel = document.getElementById('scanMatchPanel');
@@ -2820,7 +2818,11 @@ function cycleScanOverlayMode(){
 }
 
 setScanOverlayMode("none");
-applyFacingModeStyling();
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  applyFacingModeStyling();
+  wirePrimaryButtons();
+});
 
 const scanContexts = {
   modal: {
@@ -3615,25 +3617,25 @@ function handleManualLookup(inputValue){
   }
 }
 
-if(openScannerBtn){
-  openScannerBtn.addEventListener("click", ()=>{
-    if(scanModalEl && window.bootstrap){
-      const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
-      modal.show();
-      if(scanStartTimer){
-        clearTimeout(scanStartTimer);
-      }
-      scanStartTimer = setTimeout(()=>{
-        scanStartTimer = null;
-        startScanner(false);
-      }, 120);
-    } else if(scanFallbackEl){
-      scanFallbackEl.classList.add('show');
-      startScanner(true);
-    } else {
-      setStatus("localImportStatus", "Scanner unsupported on this device.", "error");
+function openScannerModal(){
+  if(scanModalEl && window.bootstrap){
+    const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
+    modal.show();
+    if(scanStartTimer){
+      clearTimeout(scanStartTimer);
     }
-  });
+    scanStartTimer = setTimeout(()=>{
+      scanStartTimer = null;
+      startScanner(false);
+    }, 120);
+    return;
+  }
+  if(scanFallbackEl){
+    scanFallbackEl.classList.add('show');
+    startScanner(true);
+    return;
+  }
+  setStatus("localImportStatus", "Scanner unsupported on this device.", "error");
 }
 if(scanModalEl){
   const modalHandler = ()=> stopScanner();
@@ -3786,9 +3788,35 @@ document.querySelectorAll('#localTable thead th[data-sort]').forEach(th => {
   });
 });
 
+function openAddFromButton(ev){
+  if(ev && typeof ev.preventDefault === "function") ev.preventDefault();
+  showAddModal().catch(err => console.error('Show add modal failed', err));
+  return false;
+}
+function openScannerFromButton(ev){
+  if(ev && typeof ev.preventDefault === "function") ev.preventDefault();
+  try {
+    openScannerModal();
+  } catch(err){
+    console.error('Open scanner failed', err);
+    setStatus("localImportStatus", `Scanner unavailable: ${err.message}`, "error");
+  }
+  return false;
+}
+
 async function showAddModal(defaults={}){
-  const statusesList = (await idbGet(IDB_KEY_STATUS)) || [];
-  populateStatusSelect(statusesList);
+  let statusesList = [];
+  try {
+    statusesList = (await idbGet(IDB_KEY_STATUS)) || [];
+  } catch(err){
+    console.warn('Status lookup failed', err);
+    statusesList = [];
+  }
+  try {
+    populateStatusSelect(statusesList);
+  } catch(err){
+    console.warn('populateStatusSelect failed', err);
+  }
   const statusValue = defaults.status ?? "";
   const metaValue = typeof defaults.meta === "string"
     ? defaults.meta
@@ -3824,12 +3852,18 @@ async function showAddModal(defaults={}){
 
   const focusSerial = (el)=> setTimeout(()=> el?.focus(), 150);
 
-  if(window.bootstrap && addModalEl){
-    applyToBootstrap();
-    const modal = bootstrap.Modal.getOrCreateInstance(addModalEl);
-    modal.show();
-    focusSerial(m_serial_number || m_asset_tag);
-  } else if(fbModalEl){
+  try {
+    if(window.bootstrap && addModalEl){
+      applyToBootstrap();
+      const modal = bootstrap.Modal.getOrCreateInstance(addModalEl);
+      modal.show();
+      focusSerial(m_serial_number || m_asset_tag);
+      return;
+    }
+  } catch(err){
+    console.warn('Bootstrap modal failed, falling back', err);
+  }
+  if(fbModalEl){
     applyToFallback();
     fbModalEl.classList.add('show');
     focusSerial(fb_serial_number || fb_asset_tag);
@@ -3838,9 +3872,36 @@ async function showAddModal(defaults={}){
   }
 }
 
-if(openAdd){
-  openAdd.addEventListener("click", ()=>{ showAddModal(); });
+function wirePrimaryButtons(){
+  const addBtn = document.getElementById('openAdd');
+  if(addBtn && !addBtn.dataset.wired){
+    addBtn.addEventListener("click", ev=>{
+      ev.preventDefault();
+      showAddModal();
+    });
+    addBtn.dataset.wired = "1";
+  }
+  const scanBtn = document.getElementById('openScanner');
+  if(scanBtn && !scanBtn.dataset.wired){
+    scanBtn.addEventListener("click", ev=>{
+      ev.preventDefault();
+      openScannerModal();
+    });
+    scanBtn.dataset.wired = "1";
+  }
 }
+wirePrimaryButtons();
+document.addEventListener("click", ev=>{
+  const target = (typeof Element !== "undefined" && ev.target instanceof Element) ? ev.target : (ev.target && ev.target.parentElement ? ev.target.parentElement : null);
+  if(!target) return;
+  if(target.closest && target.closest('#openAdd')){
+    ev.preventDefault();
+    showAddModal();
+  } else if(target.closest && target.closest('#openScanner')){
+    ev.preventDefault();
+    openScannerModal();
+  }
+});
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
 if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
   const serialValue = norm(fb_serial_number?.value);
