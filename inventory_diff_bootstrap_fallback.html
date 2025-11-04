@@ -3838,7 +3838,9 @@ async function showAddModal(defaults={}){
   }
 }
 
-openAdd.addEventListener("click", ()=>{ showAddModal(); });
+if(openAdd){
+  openAdd.addEventListener("click", ()=>{ showAddModal(); });
+}
 if(fb_cancel){ fb_cancel.addEventListener("click", ()=> fbModalEl.classList.remove('show')); }
 if(fb_confirm){ fb_confirm.addEventListener("click", ()=>{
   const serialValue = norm(fb_serial_number?.value);
