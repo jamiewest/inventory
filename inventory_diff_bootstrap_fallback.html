@@ -698,11 +698,11 @@
         <div class="ratio ratio-4x3 border rounded">
           <video id="scanVideo" autoplay playsinline muted></video>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-          <div class="d-flex gap-1">
+        <div class="d-flex flex-column flex-md-row align-items-md-center gap-2 mt-3">
+          <div class="d-flex gap-1 align-items-center">
             <button class="btn btn-outline-secondary btn-sm" id="scanFlip">Switch camera</button>
-            <button class="btn btn-outline-secondary btn-sm" id="scanZoomIn">Zoom in</button>
-            <button class="btn btn-outline-secondary btn-sm" id="scanZoomOut">Zoom out</button>
+            <label for="scanZoomSlider" class="form-label small mb-0 ms-2">Zoom</label>
+            <input type="range" min="0" max="100" value="0" id="scanZoomSlider" class="form-range" style="width:160px"/>
           </div>
           <small class="text-secondary" id="scanZoomStatus"></small>
         </div>
@@ -743,10 +743,10 @@
     <header><strong>Scan Barcode</strong></header>
     <div class="content">
       <video id="scanVideoFallback" autoplay playsinline muted></video>
-      <div class="d-flex gap-2 mt-2">
+      <div class="d-flex gap-2 mt-2 align-items-center">
         <button class="btn" id="scanFlipFallback">Switch camera</button>
-        <button class="btn" id="scanZoomInFallback">Zoom in</button>
-        <button class="btn" id="scanZoomOutFallback">Zoom out</button>
+        <label for="scanZoomSliderFallback" class="small mb-0">Zoom</label>
+        <input type="range" min="0" max="100" value="0" id="scanZoomSliderFallback" class="input" style="flex:1"/>
         <small class="text-secondary" id="scanZoomStatusFallback"></small>
       </div>
       <div id="scanStatusFallback" class="small text-secondary mt-2" role="status" aria-live="polite">Initializing camera…</div>
@@ -2536,8 +2536,7 @@ const scanStopBtn = document.getElementById('scanStop');
 const manualScanInput = document.getElementById('manualScanInput');
 const manualScanSubmit = document.getElementById('manualScanSubmit');
 const scanFlipBtn = document.getElementById('scanFlip');
-const scanZoomInBtn = document.getElementById('scanZoomIn');
-const scanZoomOutBtn = document.getElementById('scanZoomOut');
+const scanZoomSlider = document.getElementById('scanZoomSlider');
 const scanZoomStatus = document.getElementById('scanZoomStatus');
 const scanFallbackEl = document.getElementById('scanFallback');
 const scanVideoFallback = document.getElementById('scanVideoFallback');
@@ -2553,8 +2552,7 @@ const scanCloseFallbackBtn = document.getElementById('scanCloseFallback');
 const manualScanInputFallback = document.getElementById('manualScanInputFallback');
 const manualScanSubmitFallback = document.getElementById('manualScanSubmitFallback');
 const scanFlipFallbackBtn = document.getElementById('scanFlipFallback');
-const scanZoomInFallbackBtn = document.getElementById('scanZoomInFallback');
-const scanZoomOutFallbackBtn = document.getElementById('scanZoomOutFallback');
+const scanZoomSliderFallback = document.getElementById('scanZoomSliderFallback');
 const scanZoomStatusFallback = document.getElementById('scanZoomStatusFallback');
 
 const scanContexts = {
@@ -2670,6 +2668,8 @@ function updateZoomStatus(){
   if(!caps.zoom){
     if(scanZoomStatus) scanZoomStatus.textContent = '';
     if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = '';
+    if(scanZoomSlider) scanZoomSlider.value = 0;
+    if(scanZoomSliderFallback) scanZoomSliderFallback.value = 0;
     return;
   }
   const min = Number.isFinite(caps.zoom.min) ? caps.zoom.min : 1;
@@ -2679,16 +2679,22 @@ function updateZoomStatus(){
   if(!Number.isFinite(currentSetting)){
     if(scanZoomStatus) scanZoomStatus.textContent = '';
     if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = '';
+    if(scanZoomSlider) scanZoomSlider.value = 0;
+    if(scanZoomSliderFallback) scanZoomSliderFallback.value = 0;
     return;
   }
   const percent = max !== min ? Math.round(((currentSetting - min) / (max - min)) * 100) : 0;
   const label = `Zoom ${currentSetting.toFixed(2)}× (${percent}%)`;
   if(scanZoomStatus) scanZoomStatus.textContent = label;
   if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = label;
+  if(scanZoomSlider) scanZoomSlider.value = percent;
+  if(scanZoomSliderFallback) scanZoomSliderFallback.value = percent;
 }
 async function adjustZoom(delta){
   if(!activeVideoTrack || !(cameraCapabilities?.zoom)) return;
-  activeZoomLevel = Math.min(1, Math.max(0, activeZoomLevel + delta));
+  if(Number.isFinite(delta)){
+    activeZoomLevel = Math.min(1, Math.max(0, activeZoomLevel + delta));
+  }
   const min = Number.isFinite(cameraCapabilities.zoom.min) ? cameraCapabilities.zoom.min : 1;
   const max = Number.isFinite(cameraCapabilities.zoom.max) ? cameraCapabilities.zoom.max : min;
   const target = min + (max - min) * activeZoomLevel;
@@ -3312,17 +3318,21 @@ if(scanStopBtn){
 if(scanStopFallbackBtn){
   scanStopFallbackBtn.addEventListener("click", ()=> handleScanToggle(true));
 }
-if(scanZoomInBtn){
-  scanZoomInBtn.addEventListener("click", ()=> adjustZoom(0.1));
+if(scanZoomSlider){
+  scanZoomSlider.addEventListener("input", e => {
+    const value = Number(e.target.value) / 100;
+    if(!Number.isFinite(value)) return;
+    activeZoomLevel = Math.min(1, Math.max(0, value));
+    adjustZoom();
+  });
 }
-if(scanZoomOutBtn){
-  scanZoomOutBtn.addEventListener("click", ()=> adjustZoom(-0.1));
-}
-if(scanZoomInFallbackBtn){
-  scanZoomInFallbackBtn.addEventListener("click", ()=> adjustZoom(0.1));
-}
-if(scanZoomOutFallbackBtn){
-  scanZoomOutFallbackBtn.addEventListener("click", ()=> adjustZoom(-0.1));
+if(scanZoomSliderFallback){
+  scanZoomSliderFallback.addEventListener("input", e => {
+    const value = Number(e.target.value) / 100;
+    if(!Number.isFinite(value)) return;
+    activeZoomLevel = Math.min(1, Math.max(0, value));
+    adjustZoom();
+  });
 }
 if(scanFlipBtn){
   scanFlipBtn.addEventListener("click", ()=> toggleCamera());
@@ -3537,8 +3547,8 @@ if(confirmAdd){ confirmAdd.addEventListener("click", ()=>{
         }
       }
     } catch {}
-    if(!Array.isArray(rows) || rows.length===0){
-      rows = createSeedRows(100).map(upgradeRow);
+    if(!Array.isArray(rows)){
+      rows = [];
       await idbSet(IDB_KEY_ROWS, rows);
     }
   }
