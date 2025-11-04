@@ -698,6 +698,14 @@
         <div class="ratio ratio-4x3 border rounded">
           <video id="scanVideo" autoplay playsinline muted></video>
         </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-secondary btn-sm" id="scanFlip">Switch camera</button>
+            <button class="btn btn-outline-secondary btn-sm" id="scanZoomIn">Zoom in</button>
+            <button class="btn btn-outline-secondary btn-sm" id="scanZoomOut">Zoom out</button>
+          </div>
+          <small class="text-secondary" id="scanZoomStatus"></small>
+        </div>
         <div class="mt-3">
           <div id="scanStatus" class="small text-secondary" role="status" aria-live="polite">Initializing camera…</div>
         </div>
@@ -735,6 +743,12 @@
     <header><strong>Scan Barcode</strong></header>
     <div class="content">
       <video id="scanVideoFallback" autoplay playsinline muted></video>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn" id="scanFlipFallback">Switch camera</button>
+        <button class="btn" id="scanZoomInFallback">Zoom in</button>
+        <button class="btn" id="scanZoomOutFallback">Zoom out</button>
+        <small class="text-secondary" id="scanZoomStatusFallback"></small>
+      </div>
       <div id="scanStatusFallback" class="small text-secondary mt-2" role="status" aria-live="polite">Initializing camera…</div>
       <div id="scanMatchPanelFallback" class="alert alert-info mt-3 d-none">
         <h6 class="alert-heading mb-2">Potential match</h6>
@@ -2521,6 +2535,10 @@ const scanAddBtn = document.getElementById('scanAdd');
 const scanStopBtn = document.getElementById('scanStop');
 const manualScanInput = document.getElementById('manualScanInput');
 const manualScanSubmit = document.getElementById('manualScanSubmit');
+const scanFlipBtn = document.getElementById('scanFlip');
+const scanZoomInBtn = document.getElementById('scanZoomIn');
+const scanZoomOutBtn = document.getElementById('scanZoomOut');
+const scanZoomStatus = document.getElementById('scanZoomStatus');
 const scanFallbackEl = document.getElementById('scanFallback');
 const scanVideoFallback = document.getElementById('scanVideoFallback');
 const scanMatchPanelFallback = document.getElementById('scanMatchPanelFallback');
@@ -2534,6 +2552,10 @@ const scanStopFallbackBtn = document.getElementById('scanStopFallback');
 const scanCloseFallbackBtn = document.getElementById('scanCloseFallback');
 const manualScanInputFallback = document.getElementById('manualScanInputFallback');
 const manualScanSubmitFallback = document.getElementById('manualScanSubmitFallback');
+const scanFlipFallbackBtn = document.getElementById('scanFlipFallback');
+const scanZoomInFallbackBtn = document.getElementById('scanZoomInFallback');
+const scanZoomOutFallbackBtn = document.getElementById('scanZoomOutFallback');
+const scanZoomStatusFallback = document.getElementById('scanZoomStatusFallback');
 
 const scanContexts = {
   modal: {
@@ -2588,14 +2610,22 @@ const ignoredCodes = new Set();
 let lastScanContext = null;
 let ocrCanvas = null;
 let ocrCtx = null;
+let activeFacingMode = 'environment';
+let activeZoomLevel = 1;
+let cameraCapabilities = {};
+let activeVideoTrack = null;
 async function configureCameraTrack(track){
   if(!track) return;
   const caps = track.getCapabilities ? track.getCapabilities() : {};
   const settings = track.getSettings ? track.getSettings() : {};
   const constraints = { advanced: [] };
+  cameraCapabilities = caps;
+  activeVideoTrack = track;
   if(caps.zoom){
-    const targetZoom = Math.min(caps.zoom.max, (caps.zoom.max + caps.zoom.min) / 2 || caps.zoom.max);
+    const targetZoom = Math.min(caps.zoom.max, Math.max(caps.zoom.min, activeZoomLevel * (caps.zoom.max - caps.zoom.min) + caps.zoom.min));
     constraints.advanced.push({ zoom: targetZoom });
+    activeZoomLevel = (targetZoom - caps.zoom.min) / (caps.zoom.max - caps.zoom.min || 1);
+    updateZoomStatus();
   }
   if(caps.focusMode && caps.focusMode.includes('continuous')){
     constraints.advanced.push({ focusMode: 'continuous' });
@@ -2623,6 +2653,41 @@ function ensureQrCanvas(width, height){
     qrCanvas.height = h;
   }
   return qrCtx;
+}
+function updateZoomStatus(){
+  const formatStatus = (caps, level)=>{
+    if(!caps || !Number.isFinite(level)) return '';
+    const percent = Math.round(level * 100);
+    const maxLabel = caps.zoom ? `Zoom ${percent}%` : '';
+    return maxLabel;
+  };
+  const status = formatStatus(cameraCapabilities, activeZoomLevel);
+  if(scanZoomStatus) scanZoomStatus.textContent = status;
+  if(scanZoomStatusFallback) scanZoomStatusFallback.textContent = status;
+}
+async function adjustZoom(delta){
+  if(!activeVideoTrack || !(cameraCapabilities?.zoom)) return;
+  activeZoomLevel = Math.min(1, Math.max(0, activeZoomLevel + delta));
+  const min = cameraCapabilities.zoom.min ?? 1;
+  const max = cameraCapabilities.zoom.max ?? 1;
+  const target = min + (max - min) * activeZoomLevel;
+  try {
+    await activeVideoTrack.applyConstraints({ advanced: [{ zoom: target }] });
+  } catch(err){
+    console.warn('Zoom adjust failed', err);
+  }
+  updateZoomStatus();
+}
+async function toggleCamera(){
+  activeFacingMode = activeFacingMode === 'environment' ? 'user' : 'environment';
+  stopScanner();
+  if(scanCtx){
+    startScanner(scanCtx === scanContexts.fallback);
+  } else if(lastScanContext){
+    startScanner(lastScanContext === scanContexts.fallback);
+  } else {
+    startScanner(false);
+  }
 }
 function detectQrFromFrame(video){
   if(!video || !window.jsQR) return null;
@@ -2955,7 +3020,7 @@ async function startScanner(useFallback){
     setScanStatusMessage("Requesting camera…", "info");
     const constraints = {
       video: {
-        facingMode: { ideal: "environment" },
+        facingMode: { ideal: activeFacingMode },
         width: { ideal: 1280 },
         height: { ideal: 720 },
         zoom: { ideal: 2 }
@@ -3221,6 +3286,24 @@ if(scanStopBtn){
 }
 if(scanStopFallbackBtn){
   scanStopFallbackBtn.addEventListener("click", ()=> handleScanToggle(true));
+}
+if(scanZoomInBtn){
+  scanZoomInBtn.addEventListener("click", ()=> adjustZoom(0.1));
+}
+if(scanZoomOutBtn){
+  scanZoomOutBtn.addEventListener("click", ()=> adjustZoom(-0.1));
+}
+if(scanZoomInFallbackBtn){
+  scanZoomInFallbackBtn.addEventListener("click", ()=> adjustZoom(0.1));
+}
+if(scanZoomOutFallbackBtn){
+  scanZoomOutFallbackBtn.addEventListener("click", ()=> adjustZoom(-0.1));
+}
+if(scanFlipBtn){
+  scanFlipBtn.addEventListener("click", ()=> toggleCamera());
+}
+if(scanFlipFallbackBtn){
+  scanFlipFallbackBtn.addEventListener("click", ()=> toggleCamera());
 }
 if(scanCloseFallbackBtn){
   scanCloseFallbackBtn.addEventListener("click", ()=>{
