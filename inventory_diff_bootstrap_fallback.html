@@ -3444,9 +3444,9 @@ function startZXingLoop(){
     if(zxingReader){
       zxingReader.reset();
     } else {
-    zxingReader = new window.ZXing.BrowserMultiFormatReader();
-  }
-    zxingReader.decodeFromVideoDevice(null, scanCtx.video, (result, err)=>{
+      zxingReader = new window.ZXing.BrowserMultiFormatReader();
+    }
+    zxingReader.decodeFromVideoElement(scanCtx.video, (result, err)=>{
       if(!scanActive || scanPaused){
         return;
       }
