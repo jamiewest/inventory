@@ -3626,13 +3626,20 @@ function openScannerModal(){
   if(scanModalEl && window.bootstrap){
     const modal = bootstrap.Modal.getOrCreateInstance(scanModalEl);
     modal.show();
-    if(scanStartTimer){
-      clearTimeout(scanStartTimer);
-    }
-    scanStartTimer = setTimeout(()=>{
+    const start = ()=>{
       scanStartTimer = null;
       startScanner(false);
-    }, 120);
+    };
+    if(modal._isShown || modal._isShown === undefined){
+      // Bootstraps 5 exposes _isShown; fall back to timeout otherwise
+      start();
+    } else {
+      const handler = ()=>{
+        scanModalEl.removeEventListener('shown.bs.modal', handler);
+        start();
+      };
+      scanModalEl.addEventListener('shown.bs.modal', handler, { once:true });
+    }
     return;
   }
   if(scanFallbackEl){
